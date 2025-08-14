@@ -2,6 +2,7 @@
 name = "buzzline"
 compatibility_date = "2024-10-15"
 pages_build_output_dir = "./build/client"
+compatibility_flags = ["nodejs_compat"]
 
 # KV Namespaces for Pages
 [[kv_namespaces]]
