@@ -21,7 +21,9 @@
       "Bash(npx wrangler kv namespace create:*)",
       "Bash(npx wrangler kv namespace delete:*)",
       "Bash(npx wrangler kv namespace list:*)",
-      "Bash(git config:*)"
+      "Bash(git config:*)",
+      "Bash(node:*)",
+      "Bash(NODE_OPTIONS=\"--trace-warnings --loader ./node_modules/vite/dist/node/loader.mjs\" npm run dev)"
     ],
     "deny": []
   }
