@@ -20,7 +20,8 @@
       "Bash(npx wrangler kv:namespace create:*)",
       "Bash(npx wrangler kv namespace create:*)",
       "Bash(npx wrangler kv namespace delete:*)",
-      "Bash(npx wrangler kv namespace list:*)"
+      "Bash(npx wrangler kv namespace list:*)",
+      "Bash(git config:*)"
     ],
     "deny": []
   }

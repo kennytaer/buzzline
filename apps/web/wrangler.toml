@@ -1,8 +1,8 @@
+# Cloudflare Pages Configuration
 name = "buzzline"
 compatibility_date = "2024-10-15"
-pages_build_output_dir = "./apps/web/build/client"
 
-# KV Namespaces - Final buzzline-prefixed namespaces
+# KV Namespaces for Pages
 [[kv_namespaces]]
 binding = "BUZZLINE_MAIN"
 id = "365db24eb7d647acb6e3fc39d38acd25"
@@ -17,10 +17,3 @@ preview_id = "0c5d091149a74d4bbac8941b678a6caa"
 binding = "BUZZLINE_CACHE"
 id = "951b33a733c446378409d0825256c060"
 preview_id = "9082b80ad91d4e5f9b2da6a086871817"
-
-# Environment variables
-[env.preview.vars]
-NODE_ENV = "preview"
-
-[env.production.vars]
-NODE_ENV = "production"
