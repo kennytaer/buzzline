@@ -1,0 +1,1 @@
+import{t as i,r as e,j as o}from"./components-C_fFa3wo.js";import{R as s}from"./browser-kcjcQWsZ.js";var r={},a;function n(){if(a)return r;a=1;var t=i();return r.createRoot=t.createRoot,r.hydrateRoot=t.hydrateRoot,r}var c=n();e.startTransition(()=>{c.hydrateRoot(document,o.jsx(e.StrictMode,{children:o.jsx(s,{})}))});
