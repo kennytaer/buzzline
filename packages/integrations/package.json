@@ -1,0 +1,14 @@
+{
+  "name": "@buzzline/integrations",
+  "version": "0.1.0",
+  "main": "index.ts",
+  "dependencies": {
+    "twilio": "^4.20.0",
+    "mailgun.js": "^9.4.1",
+    "@buzzline/types": "*"
+  },
+  "devDependencies": {
+    "typescript": "^5.3.3",
+    "@types/node": "^20.11.5"
+  }
+}

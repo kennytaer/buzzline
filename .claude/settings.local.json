@@ -1,0 +1,27 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(mkdir:*)",
+      "Bash(npx create-remix:*)",
+      "Bash(npx create-react-router:*)",
+      "Bash(npm install)",
+      "Bash(npx prisma generate:*)",
+      "Bash(npx prisma:*)",
+      "Bash(npm run dev:*)",
+      "Bash(npm run typecheck:*)",
+      "Bash(timeout 10s npm run dev)",
+      "Bash(npm run:*)",
+      "Bash(curl:*)",
+      "Bash(npm install:*)",
+      "Bash(del check-db.js)",
+      "Bash(del seed-db.js)",
+      "Bash(rm:*)",
+      "Bash(node test-prisma.js)",
+      "Bash(npx wrangler kv:namespace create:*)",
+      "Bash(npx wrangler kv namespace create:*)",
+      "Bash(npx wrangler kv namespace delete:*)",
+      "Bash(npx wrangler kv namespace list:*)"
+    ],
+    "deny": []
+  }
+}
