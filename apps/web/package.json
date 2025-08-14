@@ -15,6 +15,7 @@
     "@clerk/remix": "^4.2.15",
     "@headlessui/react": "^1.7.17",
     "@remix-run/cloudflare": "*",
+    "@remix-run/cloudflare-pages": "^2.17.0",
     "@remix-run/react": "*",
     "clsx": "^2.0.0",
     "isbot": "^4.1.0",
