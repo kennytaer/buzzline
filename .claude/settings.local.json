@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npx create-remix:*)",
+      "Bash(npx create-react-router:*)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}
