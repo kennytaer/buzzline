@@ -7,3 +7,5 @@ vite.config.ts.*
 .env
 .env.production
 .env.local
+wrangler.toml
+.wrangler

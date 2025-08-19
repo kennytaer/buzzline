@@ -1,0 +1,21 @@
+# Copy this to wrangler.toml and fill in your account details
+name = "buzzline"
+account_id = "YOUR_ACCOUNT_ID_HERE"
+compatibility_date = "2024-10-15"
+compatibility_flags = ["nodejs_compat"]
+
+# KV Namespaces for development
+[[kv_namespaces]]
+binding = "BUZZLINE_MAIN"
+id = "YOUR_MAIN_KV_ID_HERE"
+preview_id = "YOUR_MAIN_KV_PREVIEW_ID_HERE"
+
+[[kv_namespaces]]
+binding = "BUZZLINE_ANALYTICS"
+id = "YOUR_ANALYTICS_KV_ID_HERE"
+preview_id = "YOUR_ANALYTICS_KV_PREVIEW_ID_HERE"
+
+[[kv_namespaces]]
+binding = "BUZZLINE_CACHE"
+id = "YOUR_CACHE_KV_ID_HERE"
+preview_id = "YOUR_CACHE_KV_PREVIEW_ID_HERE"
