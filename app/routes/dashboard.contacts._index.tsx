@@ -20,47 +20,21 @@ export async function loader(args: LoaderFunctionArgs) {
     const limit = parseInt(url.searchParams.get("limit") || "50");
     const search = url.searchParams.get("search") || "";
     
-    // Fetch all contacts and segments from KV store
-    const allContacts = await kvService.listContacts(orgId);
+    // Fetch paginated contacts and segments from KV store
+    const contactsData = await kvService.getContactsPaginated(orgId, page, limit, search);
     const segments = await kvService.listContactLists(orgId);
-
-    // Filter contacts based on search
-    let filteredContacts = allContacts;
-    if (search) {
-      const searchLower = search.toLowerCase();
-      filteredContacts = allContacts.filter((contact: any) => {
-        const fullName = `${contact.firstName} ${contact.lastName}`.toLowerCase();
-        const email = (contact.email || "").toLowerCase();
-        const phone = (contact.phone || "").toLowerCase();
-        
-        // Also search in metadata
-        const metadataText = contact.metadata ? 
-          Object.values(contact.metadata).join(" ").toLowerCase() : "";
-        
-        return fullName.includes(searchLower) || 
-               email.includes(searchLower) || 
-               phone.includes(searchLower) ||
-               metadataText.includes(searchLower);
-      });
-    }
-
-    // Calculate pagination
-    const totalContacts = filteredContacts.length;
-    const totalPages = Math.ceil(totalContacts / limit);
-    const offset = (page - 1) * limit;
-    const paginatedContacts = filteredContacts.slice(offset, offset + limit);
 
     return json({ 
       orgId, 
-      contacts: paginatedContacts, 
+      contacts: contactsData.contacts, 
       segments,
       pagination: {
-        currentPage: page,
-        totalPages,
-        totalContacts,
-        limit,
-        hasNextPage: page < totalPages,
-        hasPrevPage: page > 1
+        currentPage: contactsData.currentPage,
+        totalPages: contactsData.totalPages,
+        totalContacts: contactsData.totalContacts,
+        limit: contactsData.limit,
+        hasNextPage: contactsData.hasNextPage,
+        hasPrevPage: contactsData.hasPrevPage
       },
       search
     });

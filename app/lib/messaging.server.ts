@@ -74,7 +74,7 @@ export class MessagingService {
         };
       }
 
-      const result = await response.json();
+      const result = await response.json() as any;
       
       return {
         success: true,
@@ -124,7 +124,7 @@ export class MessagingService {
         };
       }
 
-      const result = await response.json();
+      const result = await response.json() as any;
       
       return {
         success: true,

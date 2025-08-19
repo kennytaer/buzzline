@@ -3,6 +3,7 @@ import type { LoaderFunctionArgs, ActionFunctionArgs } from "@remix-run/cloudfla
 import { getAuth } from "@clerk/remix/ssr.server";
 import { redirect, json } from "@remix-run/cloudflare";
 import { getKVService } from "~/lib/kv.server";
+import { isValidEmail, isValidPhone, formatPhoneNumber } from "~/lib/utils";
 
 export async function loader(args: LoaderFunctionArgs) {
   const { userId, orgId } = await getAuth(args);
@@ -32,8 +33,8 @@ export async function action(args: ActionFunctionArgs) {
   const formData = await args.request.formData();
   const firstName = formData.get("firstName") as string;
   const lastName = formData.get("lastName") as string;
-  const email = formData.get("email") as string;
-  const phone = formData.get("phone") as string;
+  const email = (formData.get("email") as string)?.trim() || undefined;
+  const phone = (formData.get("phone") as string)?.trim() || undefined;
 
   // Validate required fields
   if (!firstName || !lastName) {
@@ -44,11 +45,25 @@ export async function action(args: ActionFunctionArgs) {
     return json({ error: "Either email or phone number is required" }, { status: 400 });
   }
 
+  // Validate email format if provided
+  if (email && !isValidEmail(email)) {
+    return json({ error: "Please enter a valid email address" }, { status: 400 });
+  }
+
+  // Validate and format phone number if provided
+  let formattedPhone: string | undefined = undefined;
+  if (phone) {
+    if (!isValidPhone(phone)) {
+      return json({ error: "Please enter a valid phone number (10-11 digits)" }, { status: 400 });
+    }
+    formattedPhone = formatPhoneNumber(phone);
+  }
+
   try {
     const kvService = getKVService(args.context);
 
     // Check if contact already exists
-    const existingContact = await kvService.findContactByEmailOrPhone(orgId, email, phone);
+    const existingContact = await kvService.findContactByEmailOrPhone(orgId, email, formattedPhone);
     if (existingContact) {
       return json({ error: "A contact with this email or phone number already exists" }, { status: 400 });
     }
@@ -70,8 +85,9 @@ export async function action(args: ActionFunctionArgs) {
     for (const [key, value] of formData.entries()) {
       if (key.startsWith('metadata_') && !key.includes('_display_name')) {
         const fieldName = key.replace('metadata_', '');
-        if (!customFields.includes(fieldName) && value && (value as string).trim()) {
-          metadata[fieldName] = (value as string).trim();
+        const stringValue = typeof value === 'string' ? value : '';
+        if (!customFields.includes(fieldName) && stringValue && stringValue.trim()) {
+          metadata[fieldName] = stringValue.trim();
           metadata[`${fieldName}_display_name`] = fieldName.replace(/_/g, ' ');
           // Add to custom fields list
           await kvService.addCustomField(orgId, fieldName);
@@ -85,8 +101,8 @@ export async function action(args: ActionFunctionArgs) {
     await kvService.createContact(orgId, contactId, {
       firstName: firstName.trim(),
       lastName: lastName.trim(),
-      email: email?.trim() || null,
-      phone: phone?.trim() || null,
+      email: email || null,
+      phone: formattedPhone || null,
       metadata: Object.keys(metadata).length > 0 ? metadata : null
     });
 
@@ -155,7 +171,7 @@ export default function NewContact() {
                     name="firstName"
                     id="firstName"
                     required
-                    className="shadow-sm focus:ring-primary-500 focus:border-primary-500 block w-full sm:text-sm border-gray-300 rounded-md"
+                    className="shadow-sm focus:ring-primary-500 focus:border-primary-500 block w-full sm:text-sm border-gray-300 rounded-md px-3 py-2"
                     placeholder="Enter first name"
                   />
                 </div>
@@ -171,7 +187,7 @@ export default function NewContact() {
                     name="lastName"
                     id="lastName"
                     required
-                    className="shadow-sm focus:ring-primary-500 focus:border-primary-500 block w-full sm:text-sm border-gray-300 rounded-md"
+                    className="shadow-sm focus:ring-primary-500 focus:border-primary-500 block w-full sm:text-sm border-gray-300 rounded-md px-3 py-2"
                     placeholder="Enter last name"
                   />
                 </div>
@@ -186,7 +202,7 @@ export default function NewContact() {
                     type="email"
                     name="email"
                     id="email"
-                    className="shadow-sm focus:ring-primary-500 focus:border-primary-500 block w-full sm:text-sm border-gray-300 rounded-md"
+                    className="shadow-sm focus:ring-primary-500 focus:border-primary-500 block w-full sm:text-sm border-gray-300 rounded-md px-3 py-2"
                     placeholder="Enter email address"
                   />
                 </div>
@@ -204,12 +220,12 @@ export default function NewContact() {
                     type="tel"
                     name="phone"
                     id="phone"
-                    className="shadow-sm focus:ring-primary-500 focus:border-primary-500 block w-full sm:text-sm border-gray-300 rounded-md"
+                    className="shadow-sm focus:ring-primary-500 focus:border-primary-500 block w-full sm:text-sm border-gray-300 rounded-md px-3 py-2"
                     placeholder="Enter phone number"
                   />
                 </div>
                 <p className="mt-1 text-sm text-gray-500">
-                  Include country code (e.g., +1234567890)
+                  US/Canada format: 1234567890 or +1234567890
                 </p>
               </div>
             </div>
@@ -228,7 +244,7 @@ export default function NewContact() {
                           type="text"
                           name={`metadata_${fieldName}`}
                           id={`metadata_${fieldName}`}
-                          className="shadow-sm focus:ring-primary-500 focus:border-primary-500 block w-full sm:text-sm border-gray-300 rounded-md"
+                          className="shadow-sm focus:ring-primary-500 focus:border-primary-500 block w-full sm:text-sm border-gray-300 rounded-md px-3 py-2"
                           placeholder={`Enter ${fieldName.replace(/_/g, ' ')}`}
                         />
                       </div>
