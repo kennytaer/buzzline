@@ -97,6 +97,7 @@ export async function action(args: ActionFunctionArgs) {
 
     // Create contact
     const contactId = `contact_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    console.log("CONTACT CREATE - OrgId:", orgId, "ContactId:", contactId, "Key:", `org:${orgId}:contact:${contactId}`);
     
     await kvService.createContact(orgId, contactId, {
       firstName: firstName.trim(),
@@ -106,6 +107,7 @@ export async function action(args: ActionFunctionArgs) {
       metadata: Object.keys(metadata).length > 0 ? metadata : null
     });
 
+    console.log("CONTACT CREATED - Success");
     return redirect("/dashboard/contacts");
   } catch (error) {
     console.error("Error creating contact:", error);

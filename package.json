@@ -6,7 +6,7 @@
   "scripts": {
     "build": "remix vite:build",
     "dev": "remix vite:dev",
-    "dev:wrangler": "npm run build && wrangler pages dev ./ --compatibility-date=2024-10-15 --kv=BUZZLINE_MAIN=fa6543997a044e459690a1798bff62be --kv=BUZZLINE_ANALYTICS=0c5d091149a74d4bbac8941b678a6caa --kv=BUZZLINE_CACHE=9082b80ad91d4e5f9b2da6a086871817",
+    "dev:wrangler": "npm run build && wrangler pages dev",
     "lint": "eslint --ignore-path .gitignore --cache --cache-location ./node_modules/.cache/eslint .",
     "start": "remix-serve ./build/server/index.js",
     "typecheck": "tsc",
