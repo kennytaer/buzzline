@@ -141,28 +141,6 @@ export default function ContactsIndex() {
             All Contacts ({pagination.totalContacts})
           </h3>
           
-          {/* Action Buttons and Search */}
-          <div className="flex items-center space-x-4">
-            <a
-              href="/dashboard/contacts/new"
-              className="inline-flex items-center px-3 py-2 border border-transparent text-sm leading-4 font-medium rounded-md text-white bg-primary-500 hover:bg-primary-600"
-            >
-              <svg className="-ml-0.5 mr-2 h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
-              </svg>
-              Add Contact
-            </a>
-            <a
-              href="/dashboard/contacts/upload"
-              className="inline-flex items-center px-3 py-2 border border-gray-300 text-sm leading-4 font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50"
-            >
-              <svg className="-ml-0.5 mr-2 h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
-              </svg>
-              Upload CSV
-            </a>
-          </div>
-          
           {/* Search Box */}
           <div className="flex items-center space-x-4 mt-4 sm:mt-0">
             <form method="GET" className="flex items-center space-x-2">
@@ -258,7 +236,7 @@ export default function ContactsIndex() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-200 bg-white">
-                {contacts.slice(0, 10).map((contact: any) => (
+                {contacts.map((contact: any) => (
                   <tr key={contact.id}>
                     <td className="whitespace-nowrap px-6 py-4 text-sm font-medium text-gray-900">
                       {contact.firstName} {contact.lastName}
@@ -270,20 +248,13 @@ export default function ContactsIndex() {
                       {contact.phone}
                     </td>
                     <td className="px-6 py-4 text-sm text-gray-500">
-                      <div className="space-y-1">
-                        {contact.metadata && Object.keys(contact.metadata)
-                          .filter(key => !key.endsWith('_display_name'))
-                          .map((key: string) => (
-                          <div key={key} className="flex items-center space-x-2">
-                            <span className="text-xs text-gray-400">
-                              {contact.metadata[`${key}_display_name`] || key.replace(/_/g, ' ')}:
-                            </span>
-                            <span className="text-xs">
-                              {contact.metadata[key]}
-                            </span>
-                          </div>
-                        ))}
-                      </div>
+                      {contact.hasMetadata ? (
+                        <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
+                          Has Custom Fields
+                        </span>
+                      ) : (
+                        <span className="text-gray-400 text-xs">None</span>
+                      )}
                     </td>
                     <td className="whitespace-nowrap px-6 py-4 text-sm text-gray-500">
                       {contact.optedOut ? (
