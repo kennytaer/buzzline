@@ -4,9 +4,63 @@
 
 html,
 body {
-  @apply bg-white dark:bg-gray-950;
+  @apply bg-white dark:bg-gray-950 text-gray-900 dark:text-gray-100;
 
   @media (prefers-color-scheme: dark) {
     color-scheme: dark;
+  }
+}
+
+/* Form input base styles for dark mode compatibility */
+@layer components {
+  .form-input {
+    @apply block w-full rounded-md border-gray-300 dark:border-gray-600 
+           bg-white dark:bg-gray-800 
+           text-gray-900 dark:text-gray-100
+           placeholder-gray-500 dark:placeholder-gray-400
+           shadow-sm 
+           focus:border-primary-500 dark:focus:border-primary-400
+           focus:ring-primary-500 dark:focus:ring-primary-400
+           px-3 py-2;
+  }
+  
+  .form-textarea {
+    @apply block w-full rounded-md border-gray-300 dark:border-gray-600 
+           bg-white dark:bg-gray-800 
+           text-gray-900 dark:text-gray-100
+           placeholder-gray-500 dark:placeholder-gray-400
+           shadow-sm 
+           focus:border-primary-500 dark:focus:border-primary-400
+           focus:ring-primary-500 dark:focus:ring-primary-400
+           px-3 py-2;
+  }
+  
+  .form-select {
+    @apply block w-full rounded-md border-gray-300 dark:border-gray-600 
+           bg-white dark:bg-gray-800 
+           text-gray-900 dark:text-gray-100
+           shadow-sm 
+           focus:border-primary-500 dark:focus:border-primary-400
+           focus:ring-primary-500 dark:focus:ring-primary-400
+           px-3 py-2;
+  }
+  
+  .card {
+    @apply bg-white dark:bg-gray-800 
+           border border-gray-200 dark:border-gray-700 
+           shadow rounded-lg;
+  }
+  
+  .card-header {
+    @apply bg-gray-50 dark:bg-gray-700 
+           border-b border-gray-200 dark:border-gray-600;
+  }
+  
+  .form-label {
+    @apply block text-sm font-medium text-gray-700 dark:text-gray-300;
+  }
+  
+  .form-help {
+    @apply text-sm text-gray-500 dark:text-gray-400;
   }
 }

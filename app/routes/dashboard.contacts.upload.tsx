@@ -88,11 +88,18 @@ export async function action(args: ActionFunctionArgs) {
         }
       }
 
-      // Process and import contacts
+      // Process contacts in optimized bulk operations
       const contactIds: string[] = [];
       const errors: Array<{ row: number; error: string }> = [];
       const duplicatesUpdated: string[] = [];
       const skippedDuplicates: string[] = [];
+      
+      // First pass: validate and prepare all contacts
+      const validContacts: Array<{
+        rowIndex: number;
+        contact: any;
+        contactId: string;
+      }> = [];
       
       for (let i = 0; i < rows.length; i++) {
         const row = rows[i];
@@ -129,84 +136,126 @@ export async function action(args: ActionFunctionArgs) {
             }
           }
 
-          // Check for existing contact by email or phone
-          const existingContact = await kvService.findContactByEmailOrPhone(orgId, contact.email, contact.phone);
-          
-          if (existingContact) {
-            // Check if it's an exact duplicate (same email AND same phone if both provided)
-            const isExactDuplicate = 
-              (contact.email && existingContact.email === contact.email) &&
-              (contact.phone && existingContact.phone === contact.phone);
-            
-            if (isExactDuplicate) {
-              // Complete duplicate - add to list if not already there
-              const updatedListIds = existingContact.contactListIds || [];
-              if (!updatedListIds.includes(listId)) {
-                updatedListIds.push(listId);
-                
-                const updates: any = { contactListIds: updatedListIds };
-                
-                // Reactivate if requested and currently opted out
-                if (reactivateDuplicates && existingContact.optedOut) {
-                  updates.optedOut = false;
-                  updates.optedOutAt = null;
-                }
-                
-                await kvService.updateContact(orgId, existingContact.id, updates);
-                
-                if (reactivateDuplicates && existingContact.optedOut) {
-                  duplicatesUpdated.push(existingContact.id);
-                } else {
-                  skippedDuplicates.push(existingContact.id);
-                }
-              } else {
-                skippedDuplicates.push(existingContact.id);
-              }
-            } else {
-              // Partial duplicate (email or phone match) - update the existing contact
-              const updatedListIds = existingContact.contactListIds || [];
-              if (!updatedListIds.includes(listId)) {
-                updatedListIds.push(listId);
-              }
-              
-              // Merge metadata
-              const mergedMetadata = { ...existingContact.metadata, ...contact.metadata };
-              
-              const updates: any = {
-                firstName: contact.firstName || existingContact.firstName,
-                lastName: contact.lastName || existingContact.lastName,
-                email: contact.email || existingContact.email,
-                phone: contact.phone || existingContact.phone,
-                metadata: mergedMetadata,
-                contactListIds: updatedListIds
-              };
-              
-              // Reactivate if requested and currently opted out
-              if (reactivateDuplicates && existingContact.optedOut) {
-                updates.optedOut = false;
-                updates.optedOutAt = null;
-              }
-              
-              await kvService.updateContact(orgId, existingContact.id, updates);
-              
-              if (reactivateDuplicates && existingContact.optedOut) {
-                duplicatesUpdated.push(existingContact.id);
-              } else {
-                contactIds.push(existingContact.id);
-              }
-            }
-          } else {
-            // New contact - create it
-            const contactId = generateId();
-            await kvService.createContact(orgId, contactId, contact);
-            contactIds.push(contactId);
-          }
+          validContacts.push({
+            rowIndex: i,
+            contact,
+            contactId: generateId()
+          });
           
         } catch (error) {
           console.error("Error processing contact row:", error);
           errors.push({ row: i + 1, error: "Failed to process contact" });
         }
       }
+
+      if (validContacts.length === 0) {
+        return json({
+          step: "complete",
+          listId,
+          totalRows: rows.length,
+          successfulRows: 0,
+          duplicatesUpdated: 0,
+          skippedDuplicates: 0,
+          failedRows: errors.length,
+          errors
+        });
+      }
+
+      // Second pass: bulk duplicate checking
+      console.log("BULK CSV IMPORT - Checking duplicates for", validContacts.length, "contacts");
+      const emailsAndPhones = validContacts.map(({contact}) => ({
+        email: contact.email || undefined,
+        phone: contact.phone || undefined
+      }));
+      
+      const existingContacts = await kvService.findContactsByEmailsOrPhones(orgId, emailsAndPhones);
+      const existingContactMap = new Map();
+      existingContacts.forEach(({email, phone, contact}) => {
+        if (email) existingContactMap.set(email.toLowerCase(), contact);
+        if (phone) existingContactMap.set(phone, contact);
+      });
+
+      // Third pass: separate new contacts from duplicates
+      const newContacts: Array<{id: string, data: any}> = [];
+      const duplicateUpdates: Array<{contact: any, updates: any}> = [];
+      
+      for (const {rowIndex, contact, contactId} of validContacts) {
+        const existingByEmail = contact.email ? existingContactMap.get(contact.email.toLowerCase()) : null;
+        const existingByPhone = contact.phone ? existingContactMap.get(contact.phone) : null;
+        const existingContact = existingByEmail || existingByPhone;
+        
+        if (existingContact) {
+          // Handle duplicate - prepare update
+          const updatedListIds = existingContact.contactListIds || [];
+          if (!updatedListIds.includes(listId)) {
+            updatedListIds.push(listId);
+          }
+          
+          // Merge metadata
+          const mergedMetadata = { ...existingContact.metadata, ...contact.metadata };
+          
+          const updates: any = {
+            firstName: contact.firstName || existingContact.firstName,
+            lastName: contact.lastName || existingContact.lastName,
+            email: contact.email || existingContact.email,
+            phone: contact.phone || existingContact.phone,
+            metadata: mergedMetadata,
+            contactListIds: updatedListIds
+          };
+          
+          // Reactivate if requested and currently opted out
+          if (reactivateDuplicates && existingContact.optedOut) {
+            updates.optedOut = false;
+            updates.optedOutAt = null;
+          }
+          
+          duplicateUpdates.push({contact: existingContact, updates});
+          
+          if (reactivateDuplicates && existingContact.optedOut) {
+            duplicatesUpdated.push(existingContact.id);
+          } else {
+            skippedDuplicates.push(existingContact.id);
+          }
+        } else {
+          // New contact
+          newContacts.push({
+            id: contactId,
+            data: contact
+          });
+          contactIds.push(contactId);
+        }
+      }
+
+      // Fourth pass: bulk create new contacts
+      if (newContacts.length > 0) {
+        console.log("BULK CSV IMPORT - Creating", newContacts.length, "new contacts");
+        const bulkResults = await kvService.createContactsBulk(orgId, newContacts);
+        
+        // Handle any bulk creation errors
+        for (const error of bulkResults.errors) {
+          errors.push({ row: -1, error: `Failed to create contact: ${error.error}` });
+        }
+      }
+
+      // Fifth pass: update duplicates (can be done in smaller batches)
+      if (duplicateUpdates.length > 0) {
+        console.log("BULK CSV IMPORT - Updating", duplicateUpdates.length, "duplicate contacts");
+        const UPDATE_BATCH_SIZE = 25;
+        
+        for (let i = 0; i < duplicateUpdates.length; i += UPDATE_BATCH_SIZE) {
+          const batch = duplicateUpdates.slice(i, i + UPDATE_BATCH_SIZE);
+          await Promise.all(batch.map(async ({contact, updates}) => {
+            try {
+              await kvService.updateContact(orgId, contact.id, updates);
+            } catch (error) {
+              console.error("Failed to update duplicate contact:", error);
+              errors.push({ row: -1, error: "Failed to update duplicate contact" });
+            }
+          }));
+        }
+      }
+
+      console.log("BULK CSV IMPORT COMPLETE - New:", newContacts.length, "Updated:", duplicateUpdates.length, "Errors:", errors.length);
 
       return json({
         step: "complete",
@@ -603,7 +652,7 @@ export default function ContactUpload() {
               name="listName"
               value={listName}
               onChange={(e) => setListName(e.target.value)}
-              className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 px-3 py-2"
+              className="form-input"
               placeholder="e.g., Newsletter Subscribers"
               required
             />

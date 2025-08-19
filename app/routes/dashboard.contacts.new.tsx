@@ -126,7 +126,7 @@ export default function NewContact() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Add New Contact</h1>
-          <p className="mt-1 text-sm text-gray-500">
+          <p className="mt-1 form-help">
             Create a new contact manually
           </p>
         </div>
@@ -159,12 +159,12 @@ export default function NewContact() {
         </div>
       )}
 
-      <div className="bg-white shadow rounded-lg">
+      <div className="card">
         <div className="px-4 py-5 sm:p-6">
           <Form method="post" className="space-y-6">
             <div className="grid grid-cols-1 gap-6 sm:grid-cols-2">
               <div>
-                <label htmlFor="firstName" className="block text-sm font-medium text-gray-700">
+                <label htmlFor="firstName" className="form-label">
                   First Name *
                 </label>
                 <div className="mt-1">
@@ -173,14 +173,14 @@ export default function NewContact() {
                     name="firstName"
                     id="firstName"
                     required
-                    className="shadow-sm focus:ring-primary-500 focus:border-primary-500 block w-full sm:text-sm border-gray-300 rounded-md px-3 py-2"
+                    className="form-input"
                     placeholder="Enter first name"
                   />
                 </div>
               </div>
 
               <div>
-                <label htmlFor="lastName" className="block text-sm font-medium text-gray-700">
+                <label htmlFor="lastName" className="form-label">
                   Last Name *
                 </label>
                 <div className="mt-1">
@@ -189,14 +189,14 @@ export default function NewContact() {
                     name="lastName"
                     id="lastName"
                     required
-                    className="shadow-sm focus:ring-primary-500 focus:border-primary-500 block w-full sm:text-sm border-gray-300 rounded-md px-3 py-2"
+                    className="form-input"
                     placeholder="Enter last name"
                   />
                 </div>
               </div>
 
               <div>
-                <label htmlFor="email" className="block text-sm font-medium text-gray-700">
+                <label htmlFor="email" className="form-label">
                   Email Address
                 </label>
                 <div className="mt-1">
@@ -204,17 +204,17 @@ export default function NewContact() {
                     type="email"
                     name="email"
                     id="email"
-                    className="shadow-sm focus:ring-primary-500 focus:border-primary-500 block w-full sm:text-sm border-gray-300 rounded-md px-3 py-2"
+                    className="form-input"
                     placeholder="Enter email address"
                   />
                 </div>
-                <p className="mt-1 text-sm text-gray-500">
+                <p className="mt-1 form-help">
                   Email or phone number is required
                 </p>
               </div>
 
               <div>
-                <label htmlFor="phone" className="block text-sm font-medium text-gray-700">
+                <label htmlFor="phone" className="form-label">
                   Phone Number
                 </label>
                 <div className="mt-1">
@@ -222,11 +222,11 @@ export default function NewContact() {
                     type="tel"
                     name="phone"
                     id="phone"
-                    className="shadow-sm focus:ring-primary-500 focus:border-primary-500 block w-full sm:text-sm border-gray-300 rounded-md px-3 py-2"
+                    className="form-input"
                     placeholder="Enter phone number"
                   />
                 </div>
-                <p className="mt-1 text-sm text-gray-500">
+                <p className="mt-1 form-help">
                   US/Canada format: 1234567890 or +1234567890
                 </p>
               </div>
@@ -238,7 +238,7 @@ export default function NewContact() {
                 <div className="grid grid-cols-1 gap-6 sm:grid-cols-2">
                   {customFields.map((fieldName: string) => (
                     <div key={fieldName}>
-                      <label htmlFor={`metadata_${fieldName}`} className="block text-sm font-medium text-gray-700">
+                      <label htmlFor={`metadata_${fieldName}`} className="form-label">
                         {fieldName.replace(/_/g, ' ')}
                       </label>
                       <div className="mt-1">
@@ -246,7 +246,7 @@ export default function NewContact() {
                           type="text"
                           name={`metadata_${fieldName}`}
                           id={`metadata_${fieldName}`}
-                          className="shadow-sm focus:ring-primary-500 focus:border-primary-500 block w-full sm:text-sm border-gray-300 rounded-md px-3 py-2"
+                          className="form-input"
                           placeholder={`Enter ${fieldName.replace(/_/g, ' ')}`}
                         />
                       </div>
