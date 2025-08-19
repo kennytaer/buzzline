@@ -1,10 +1,11 @@
-# For local development with wrangler dev
+# Configuration for both local development and Pages
 name = "buzzline"
 account_id = "a9ea44eb9bdb4a05b109fc989ad73804"
 compatibility_date = "2024-10-15"
 compatibility_flags = ["nodejs_compat"]
+pages_build_output_dir = "./"
 
-# KV Namespaces for development
+# KV Namespaces
 [[kv_namespaces]]
 binding = "BUZZLINE_MAIN"
 id = "365db24eb7d647acb6e3fc39d38acd25"
