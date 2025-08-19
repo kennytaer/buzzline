@@ -31,7 +31,7 @@ class MockKVNamespace {
     const keys = Array.from(this.store.keys());
     const prefix = options?.prefix || '';
     const filteredKeys = keys.filter(key => key.startsWith(prefix));
-    const limit = options?.limit || 10000; // Much higher default limit for development
+    const limit = options?.limit || 1000; // Cloudflare KV limit
     
     return {
       keys: filteredKeys.slice(0, limit).map(name => ({ name }))
@@ -107,31 +107,158 @@ export class KVService {
     }
   }
 
-  async listContacts(orgId: string, limit = 10000) {
+  async listContacts(orgId: string, limit = 1000) {
     const prefix = this.getOrgKey(orgId, 'contact', '');
-    const list = await this.main.list({ prefix, limit });
-    const contacts = await Promise.all(
-      list.keys.map(async (key: { name: string }) => {
-        const data = await this.main.get(key.name);
-        return data ? JSON.parse(data) : null;
-      })
-    );
-    return contacts.filter(Boolean);
+    const contacts: any[] = [];
+    let cursor: string | undefined = undefined;
+    
+    // Paginate through all contacts
+    do {
+      const list: any = await this.main.list({ 
+        prefix, 
+        limit: Math.min(limit - contacts.length, 1000), // Respect KV API limit
+        cursor 
+      });
+      
+      const batchContacts = await Promise.all(
+        list.keys.map(async (key: { name: string }) => {
+          const data = await this.main.get(key.name);
+          return data ? JSON.parse(data) : null;
+        })
+      );
+      
+      contacts.push(...batchContacts.filter(Boolean));
+      cursor = list.list_complete ? undefined : list.cursor;
+      
+    } while (cursor && contacts.length < limit);
+    
+    return contacts;
+  }
+
+  async getContactsCount(orgId: string): Promise<number> {
+    const prefix = this.getOrgKey(orgId, 'contact', '');
+    let totalCount = 0;
+    let cursor: string | undefined = undefined;
+    
+    // Count all contacts by paginating through keys only (more efficient)
+    do {
+      const list: any = await this.main.list({ 
+        prefix, 
+        limit: 1000,
+        cursor 
+      });
+      
+      totalCount += list.keys.length;
+      cursor = list.list_complete ? undefined : list.cursor;
+      
+    } while (cursor);
+    
+    return totalCount;
+  }
+
+  async getContactsPaginated(orgId: string, page: number = 1, limit: number = 50, search?: string) {
+    const prefix = this.getOrgKey(orgId, 'contact', '');
+    const allContacts: any[] = [];
+    let cursor: string | undefined = undefined;
+    
+    // Get ALL contacts first (we need to do filtering/search in memory since KV doesn't support complex queries)
+    do {
+      const list: any = await this.main.list({ 
+        prefix, 
+        limit: 1000,
+        cursor 
+      });
+      
+      const batchContacts = await Promise.all(
+        list.keys.map(async (key: { name: string }) => {
+          const data = await this.main.get(key.name);
+          return data ? JSON.parse(data) : null;
+        })
+      );
+      
+      allContacts.push(...batchContacts.filter(Boolean));
+      cursor = list.list_complete ? undefined : list.cursor;
+      
+    } while (cursor);
+    
+    // Apply search filter if provided
+    let filteredContacts = allContacts;
+    if (search) {
+      const searchLower = search.toLowerCase();
+      filteredContacts = allContacts.filter((contact: any) => {
+        const fullName = `${contact.firstName} ${contact.lastName}`.toLowerCase();
+        const email = (contact.email || "").toLowerCase();
+        const phone = (contact.phone || "").toLowerCase();
+        
+        // Also search in metadata
+        const metadataText = contact.metadata ? 
+          Object.values(contact.metadata).join(" ").toLowerCase() : "";
+        
+        return fullName.includes(searchLower) || 
+               email.includes(searchLower) || 
+               phone.includes(searchLower) ||
+               metadataText.includes(searchLower);
+      });
+    }
+    
+    // Apply pagination
+    const totalContacts = filteredContacts.length;
+    const totalPages = Math.ceil(totalContacts / limit);
+    const offset = (page - 1) * limit;
+    const paginatedContacts = filteredContacts.slice(offset, offset + limit);
+    
+    return {
+      contacts: paginatedContacts,
+      totalContacts,
+      totalPages,
+      currentPage: page,
+      limit,
+      hasNextPage: page < totalPages,
+      hasPrevPage: page > 1
+    };
   }
 
   async findContactByEmailOrPhone(orgId: string, email?: string, phone?: string) {
     if (!email && !phone) return null;
     
-    const allContacts = await this.listContacts(orgId);
-    return allContacts.find((contact: any) => {
-      if (email && contact.email && contact.email.toLowerCase() === email.toLowerCase()) {
-        return true;
-      }
-      if (phone && contact.phone && contact.phone === phone) {
-        return true;
-      }
-      return false;
-    });
+    const prefix = this.getOrgKey(orgId, 'contact', '');
+    let cursor: string | undefined = undefined;
+    
+    // Search through contacts in batches to avoid memory issues with large datasets
+    do {
+      const list: any = await this.main.list({ 
+        prefix, 
+        limit: 1000, // Use max KV limit per batch
+        cursor 
+      });
+      
+      // Check this batch of contacts
+      const batchContacts = await Promise.all(
+        list.keys.map(async (key: { name: string }) => {
+          const data = await this.main.get(key.name);
+          return data ? JSON.parse(data) : null;
+        })
+      );
+      
+      // Look for match in this batch
+      const match = batchContacts.find((contact: any) => {
+        if (!contact) return false;
+        if (email && contact.email && contact.email.toLowerCase() === email.toLowerCase()) {
+          return true;
+        }
+        if (phone && contact.phone && contact.phone === phone) {
+          return true;
+        }
+        return false;
+      });
+      
+      if (match) return match; // Found it, return immediately
+      
+      cursor = list.list_complete ? undefined : list.cursor;
+      
+    } while (cursor);
+    
+    return null; // No match found
   }
 
   async updateContact(orgId: string, contactId: string, updates: any) {
