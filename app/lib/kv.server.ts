@@ -158,8 +158,12 @@ export class KVService {
 
   async getContactsPaginated(orgId: string, page: number = 1, limit: number = 50, search?: string) {
     const prefix = this.getOrgKey(orgId, 'contact', '');
+    // Debug logging (will work in production too)
+    console.log("KV SEARCH - OrgId:", orgId, "Prefix:", prefix);
+    
     const allContacts: any[] = [];
     let cursor: string | undefined = undefined;
+    let totalKeysFound = 0;
     
     // Get ALL contacts first (we need to do filtering/search in memory since KV doesn't support complex queries)
     do {
@@ -168,6 +172,13 @@ export class KVService {
         limit: 1000,
         cursor 
       });
+      
+      totalKeysFound += list.keys.length;
+      console.log("KV BATCH - Keys found:", list.keys.length, "Total so far:", totalKeysFound);
+      
+      if (list.keys.length > 0) {
+        console.log("Sample keys:", list.keys.slice(0, 3).map((k: any) => k.name));
+      }
       
       const batchContacts = await Promise.all(
         list.keys.map(async (key: { name: string }) => {
@@ -206,6 +217,8 @@ export class KVService {
     const totalPages = Math.ceil(totalContacts / limit);
     const offset = (page - 1) * limit;
     const paginatedContacts = filteredContacts.slice(offset, offset + limit);
+    
+    console.log("KV RESULT - Total contacts found:", totalContacts, "Returning:", paginatedContacts.length);
     
     return {
       contacts: paginatedContacts,

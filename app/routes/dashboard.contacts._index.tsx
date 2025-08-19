@@ -22,6 +22,7 @@ export async function loader(args: LoaderFunctionArgs) {
     
     // Fetch paginated contacts and segments from KV store
     const contactsData = await kvService.getContactsPaginated(orgId, page, limit, search);
+    
     const segments = await kvService.listContactLists(orgId);
 
     return json({ 
