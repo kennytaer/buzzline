@@ -1,8 +1,9 @@
-import { useLoaderData } from "@remix-run/react";
-import type { LoaderFunctionArgs } from "@remix-run/cloudflare";
+import { useLoaderData, useFetcher, useRevalidator } from "@remix-run/react";
+import type { LoaderFunctionArgs, ActionFunctionArgs } from "@remix-run/cloudflare";
 import { getAuth } from "@clerk/remix/ssr.server";
 import { redirect, json } from "@remix-run/cloudflare";
 import { getKVService } from "~/lib/kv.server";
+import { useState, useEffect } from "react";
 
 export async function loader(args: LoaderFunctionArgs) {
   const { userId, orgId } = await getAuth(args);
@@ -52,8 +53,62 @@ export async function loader(args: LoaderFunctionArgs) {
   }
 }
 
+export async function action(args: ActionFunctionArgs) {
+  const { userId, orgId } = await getAuth(args);
+  
+  if (!userId || !orgId) {
+    return redirect("/dashboard");
+  }
+
+  const formData = await args.request.formData();
+  const intent = formData.get("intent");
+  const contactId = formData.get("contactId");
+
+  if (intent === "delete" && contactId) {
+    try {
+      const kvService = getKVService(args.context);
+      const success = await kvService.deleteContact(orgId, contactId.toString());
+      
+      if (success) {
+        return json({ success: true, message: "Contact deleted successfully" });
+      } else {
+        return json({ success: false, message: "Contact not found" }, { status: 404 });
+      }
+    } catch (error) {
+      console.error("Error deleting contact:", error);
+      return json({ success: false, message: "Failed to delete contact" }, { status: 500 });
+    }
+  }
+
+  return json({ success: false, message: "Invalid request" }, { status: 400 });
+}
+
 export default function ContactsIndex() {
   const { contacts, segments, pagination, search } = useLoaderData<typeof loader>();
+  const fetcher = useFetcher();
+  const revalidator = useRevalidator();
+  const [deletingContactId, setDeletingContactId] = useState<string | null>(null);
+
+  const handleDeleteContact = (contactId: string) => {
+    if (confirm("Are you sure you want to delete this contact? This action cannot be undone.")) {
+      setDeletingContactId(contactId);
+      const formData = new FormData();
+      formData.append("intent", "delete");
+      formData.append("contactId", contactId);
+      fetcher.submit(formData, { method: "post" });
+    }
+  };
+
+  useEffect(() => {
+    if (fetcher.state === "idle" && fetcher.data) {
+      setDeletingContactId(null);
+      const data = fetcher.data as { success: boolean; message: string };
+      if (data.success) {
+        // Revalidate to refresh the data from server
+        revalidator.revalidate();
+      }
+    }
+  }, [fetcher.state, fetcher.data, revalidator]);
 
   return (
     <div className="space-y-6">
@@ -268,9 +323,18 @@ export default function ContactsIndex() {
                       )}
                     </td>
                     <td className="relative whitespace-nowrap py-4 pl-3 pr-4 text-right text-sm font-medium sm:pr-6">
-                      <a href={`/dashboard/contacts/${contact.id}`} className="text-primary-600 hover:text-primary-900">
-                        View
-                      </a>
+                      <div className="flex items-center justify-end space-x-2">
+                        <a href={`/dashboard/contacts/${contact.id}`} className="text-primary-600 hover:text-primary-900">
+                          View
+                        </a>
+                        <button
+                          onClick={() => handleDeleteContact(contact.id)}
+                          disabled={deletingContactId === contact.id}
+                          className="text-red-600 hover:text-red-900 disabled:opacity-50"
+                        >
+                          {deletingContactId === contact.id ? "Deleting..." : "Delete"}
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))}
