@@ -26,12 +26,13 @@ BuzzLine is a marketing communication platform that wraps Twilio SMS and Mailgun
 
 ## Environment Variables
 ```
-CLERK_PUBLISHABLE_KEY=pk_test_ZGVlcC1tb3NxdWl0by02MC5jbGVyay5hY2NvdW50cy5kZXYk
-CLERK_SECRET_KEY=sk_test_4Cj9U7ewdXZjElwfNxa39rMFzuUVrND4HeNLWSdaVP
-TWILIO_ACCOUNT_SID=AC47a352bf4dc3265e74e1bb481fb8a845
-TWILIO_AUTH_TOKEN=ffdb404cded3ada739ac80d555ddc086
-EMAILING_ENDPOINT=bm-emailing-middleware.benchmetrics.workers.dev
-SMS_ENDPOINT=bm-benchmetrics-sms-service.benchmetrics.workers.dev
+CLERK_PUBLISHABLE_KEY=pk_test_your_publishable_key_here
+CLERK_SECRET_KEY=sk_test_your_secret_key_here
+TWILIO_ACCOUNT_SID=ACxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+TWILIO_AUTH_TOKEN=your_twilio_auth_token_here
+EMAILING_ENDPOINT=your-emailing-endpoint.workers.dev
+SMS_ENDPOINT=your-sms-endpoint.workers.dev
+BENCHMETRICS_API_KEY=your_benchmetrics_api_key_here
 ```
 
 ## Compliance Requirements

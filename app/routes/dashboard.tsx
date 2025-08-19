@@ -58,6 +58,11 @@ export default function Dashboard() {
                   organizationSwitcherTrigger: "w-full justify-center"
                 }
               }}
+              createOrganizationMode="modal"
+              hidePersonal={false}
+              organizationProfileMode="modal"
+              afterSelectOrganizationUrl="/dashboard"
+              afterCreateOrganizationUrl="/dashboard"
             />
           </div>
         </div>

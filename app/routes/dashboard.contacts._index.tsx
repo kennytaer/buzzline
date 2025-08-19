@@ -166,8 +166,30 @@ export default function ContactsIndex() {
             All Contacts ({pagination.totalContacts})
           </h3>
           
-          {/* Search Box */}
+          {/* Action Buttons and Search */}
           <div className="flex items-center space-x-4">
+            <a
+              href="/dashboard/contacts/new"
+              className="inline-flex items-center px-3 py-2 border border-transparent text-sm leading-4 font-medium rounded-md text-white bg-primary-500 hover:bg-primary-600"
+            >
+              <svg className="-ml-0.5 mr-2 h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+              </svg>
+              Add Contact
+            </a>
+            <a
+              href="/dashboard/contacts/upload"
+              className="inline-flex items-center px-3 py-2 border border-gray-300 text-sm leading-4 font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50"
+            >
+              <svg className="-ml-0.5 mr-2 h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+              </svg>
+              Upload CSV
+            </a>
+          </div>
+          
+          {/* Search Box */}
+          <div className="flex items-center space-x-4 mt-4 sm:mt-0">
             <form method="GET" className="flex items-center space-x-2">
               <div className="relative">
                 <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">

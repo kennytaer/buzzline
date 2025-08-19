@@ -6,28 +6,24 @@ import { redirect, json } from "@remix-run/cloudflare";
 import { getKVService } from "~/lib/kv.server";
 import { formatDate } from "~/lib/utils";
 
-// File upload utility
-async function uploadFile(file: File): Promise<{ url: string; id: string }> {
-  const formData = new FormData();
-  formData.append('files', file);
-  
-  console.log('Uploading file:', {
-    name: file.name,
-    size: file.size,
-    type: file.type,
-    lastModified: file.lastModified
-  });
+// Server-side file upload handler
+async function serverUploadFile(formData: FormData, context: any): Promise<{ url: string; id: string }> {
+  const apiKey = context.env?.BENCHMETRICS_API_KEY;
+  if (!apiKey) {
+    throw new Error('BENCHMETRICS_API_KEY not configured');
+  }
+
+  console.log('Uploading file server-side');
 
   const response = await fetch('https://file-uploader.benchmetrics.workers.dev/upload', {
     method: 'POST',
     body: formData,
     headers: {
-      'x-api-key': 'benchmetrics-3dc3c222-64ab-4d44-abd5-84f648e1d8af'
+      'x-api-key': apiKey
     },
   });
 
   console.log('Upload response status:', response.status);
-  console.log('Upload response headers:', Object.fromEntries(response.headers.entries()));
 
   if (!response.ok) {
     const errorText = await response.text();
@@ -111,6 +107,28 @@ export async function action(args: ActionFunctionArgs) {
   try {
     const kvService = getKVService(args.context);
 
+    if (actionType === "uploadFile") {
+      const file = formData.get("file") as File;
+      if (!file) {
+        return json({ error: "No file provided" }, { status: 400 });
+      }
+
+      // Validate file type and size
+      if (!file.type.startsWith('image/')) {
+        return json({ error: "Please select an image file" }, { status: 400 });
+      }
+
+      if (file.size > 5 * 1024 * 1024) {
+        return json({ error: "File size must be less than 5MB" }, { status: 400 });
+      }
+
+      const uploadFormData = new FormData();
+      uploadFormData.append('files', file);
+
+      const uploadResult = await serverUploadFile(uploadFormData, args.context);
+      return json({ success: "File uploaded successfully", url: uploadResult.url });
+    }
+
     if (actionType === "updateSignature") {
       const emailSignature = {
         salesPersonName: formData.get("salesPersonName") as string,
@@ -183,13 +201,29 @@ export default function OrganizationSettings() {
 
     setIsUploading(true);
     try {
-      const result = await uploadFile(file);
-      setLogoUrl(result.url);
+      const formData = new FormData();
+      formData.append('actionType', 'uploadFile');
+      formData.append('file', file);
+
+      const response = await fetch('/dashboard/settings', {
+        method: 'POST',
+        body: formData,
+      });
+
+      const result = await response.json();
       
-      // Update the input field
-      const input = document.getElementById('companyLogoUrl') as HTMLInputElement;
-      if (input) {
-        input.value = result.url;
+      if (result.error) {
+        throw new Error(result.error);
+      }
+
+      if (result.url) {
+        setLogoUrl(result.url);
+        
+        // Update the input field
+        const input = document.getElementById('companyLogoUrl') as HTMLInputElement;
+        if (input) {
+          input.value = result.url;
+        }
       }
     } catch (error) {
       console.error('Upload error:', error);
