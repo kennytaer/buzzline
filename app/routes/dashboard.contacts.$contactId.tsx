@@ -111,6 +111,15 @@ export async function action(args: ActionFunctionArgs) {
       await kvService.updateContactOptOut(orgId, contactId, newOptOutStatus);
       return json({ success: `Contact ${newOptOutStatus ? 'opted out' : 'reactivated'} successfully` });
       
+    } else if (actionType === "delete") {
+      const success = await kvService.deleteContact(orgId, contactId);
+      if (success) {
+        // Redirect to contacts list after successful deletion
+        return redirect("/dashboard/contacts");
+      } else {
+        return json({ error: "Contact not found" }, { status: 404 });
+      }
+      
     } else {
       return json({ error: "Invalid action" }, { status: 400 });
     }
@@ -126,6 +135,7 @@ export default function ContactView() {
   const actionData = useActionData<typeof action>();
   const navigate = useNavigate();
   const [isEditing, setIsEditing] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [customFields, setCustomFields] = useState(() => {
     const fields: Record<string, string> = {};
     if (contact.metadata) {
@@ -194,6 +204,16 @@ export default function ContactView() {
               {contact.optedOut ? 'Reactivate' : 'Opt Out'}
             </button>
           </Form>
+          <button
+            type="button"
+            onClick={() => setShowDeleteConfirm(true)}
+            className="inline-flex items-center px-4 py-2 border border-red-300 shadow-sm text-sm font-medium rounded-md text-red-700 bg-white hover:bg-red-50"
+          >
+            <svg className="-ml-1 mr-2 h-5 w-5 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+            </svg>
+            Delete Contact
+          </button>
         </div>
       </div>
 
@@ -470,6 +490,47 @@ export default function ContactView() {
           )}
         </div>
       </div>
+
+      {/* Delete Confirmation Modal */}
+      {showDeleteConfirm && (
+        <div className="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50">
+          <div className="relative top-20 mx-auto p-5 border w-96 shadow-lg rounded-md bg-white">
+            <div className="mt-3 text-center">
+              <div className="mx-auto flex items-center justify-center h-12 w-12 rounded-full bg-red-100">
+                <svg className="h-6 w-6 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z" />
+                </svg>
+              </div>
+              <h3 className="text-lg leading-6 font-medium text-gray-900 mt-2">Delete Contact</h3>
+              <div className="mt-2 px-7 py-3">
+                <p className="text-sm text-gray-500">
+                  Are you sure you want to delete <strong>{contact.firstName} {contact.lastName}</strong>? 
+                  This action cannot be undone and will permanently remove the contact from all lists and campaigns.
+                </p>
+              </div>
+              <div className="items-center px-4 py-3">
+                <div className="flex space-x-3 justify-center">
+                  <button
+                    onClick={() => setShowDeleteConfirm(false)}
+                    className="px-4 py-2 bg-gray-500 text-white text-base font-medium rounded-md shadow-sm hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-gray-300"
+                  >
+                    Cancel
+                  </button>
+                  <Form method="post" style={{ display: 'inline' }}>
+                    <input type="hidden" name="actionType" value="delete" />
+                    <button
+                      type="submit"
+                      className="px-4 py-2 bg-red-600 text-white text-base font-medium rounded-md shadow-sm hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-red-300"
+                    >
+                      Delete
+                    </button>
+                  </Form>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

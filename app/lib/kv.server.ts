@@ -700,6 +700,79 @@ export class KVService {
     return null;
   }
 
+  async deleteContact(orgId: string, contactId: string) {
+    const contact = await this.getContact(orgId, contactId);
+    if (!contact) {
+      return false;
+    }
+
+    console.log("DELETING CONTACT:", contactId, "from org:", orgId);
+
+    // Delete from main storage
+    const key = this.getOrgKey(orgId, 'contact', contactId);
+    await this.main.delete(key);
+
+    // Remove from search index
+    const searchKey = this.getContactSearchKey(orgId);
+    let searchData = await this.cache.get(searchKey);
+    if (searchData) {
+      const searchIndex = JSON.parse(searchData);
+      delete searchIndex[contactId];
+      await this.cache.put(searchKey, JSON.stringify(searchIndex));
+      console.log("REMOVED from search index");
+    }
+
+    // Remove from all page indexes
+    const metaKey = this.getContactMetaKey(orgId);
+    let meta = await this.cache.get(metaKey);
+    if (meta) {
+      const metadata = JSON.parse(meta);
+      const CONTACTS_PER_PAGE = 50;
+      
+      // Go through each page and remove the contact
+      for (let page = 1; page <= metadata.totalPages; page++) {
+        const pageKey = this.getContactIndexKey(orgId, page);
+        let pageData = await this.cache.get(pageKey);
+        if (pageData) {
+          const contacts = JSON.parse(pageData);
+          const filteredContacts = contacts.filter((c: any) => c.id !== contactId);
+          if (filteredContacts.length !== contacts.length) {
+            await this.cache.put(pageKey, JSON.stringify(filteredContacts));
+            console.log(`REMOVED from page ${page} index`);
+          }
+        }
+      }
+
+      // Update metadata count
+      metadata.totalContacts = Math.max(0, metadata.totalContacts - 1);
+      metadata.totalPages = Math.ceil(metadata.totalContacts / CONTACTS_PER_PAGE);
+      metadata.lastUpdated = new Date().toISOString();
+      await this.cache.put(metaKey, JSON.stringify(metadata));
+      console.log("UPDATED metadata - new count:", metadata.totalContacts);
+    }
+
+    // Clear all cached pages to force fresh data on next load
+    if (meta) {
+      const metadata = JSON.parse(meta);
+      for (let page = 1; page <= metadata.totalPages + 1; page++) {
+        const pageKey = this.getContactIndexKey(orgId, page);
+        await this.cache.delete(pageKey);
+      }
+      console.log("CLEARED all page caches");
+    }
+
+    // Clear metadata to force rebuild
+    await this.cache.delete(metaKey);
+    console.log("CLEARED metadata cache");
+
+    // Force a rebuild to ensure consistency and proper pagination
+    console.log("REBUILDING contact indexes for consistency");
+    await this.rebuildContactIndexes(orgId);
+
+    console.log("CONTACT DELETE COMPLETE");
+    return true;
+  }
+
   // Contact List management
   async createContactList(orgId: string, listId: string, listData: any) {
     const key = this.getOrgKey(orgId, 'contactlist', listId);
