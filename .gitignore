@@ -1,5 +1,9 @@
 node_modules
-
-/.cache
-/build
+dist
+.DS_Store
+server/public
+vite.config.ts.*
+*.tar.gz
 .env
+.env.production
+.env.local

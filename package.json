@@ -6,19 +6,27 @@
   "scripts": {
     "build": "remix vite:build",
     "dev": "remix vite:dev",
+    "dev:wrangler": "npm run build && wrangler pages dev ./ --compatibility-date=2024-10-15 --kv=BUZZLINE_MAIN=fa6543997a044e459690a1798bff62be --kv=BUZZLINE_ANALYTICS=0c5d091149a74d4bbac8941b678a6caa --kv=BUZZLINE_CACHE=9082b80ad91d4e5f9b2da6a086871817",
     "lint": "eslint --ignore-path .gitignore --cache --cache-location ./node_modules/.cache/eslint .",
     "start": "remix-serve ./build/server/index.js",
-    "typecheck": "tsc"
+    "typecheck": "tsc",
+    "cf:login": "wrangler auth login",
+    "cf:deploy": "npm run build && wrangler pages deploy ./"
   },
   "dependencies": {
+    "@clerk/clerk-react": "^5.42.2",
+    "@clerk/remix": "^4.11.2",
     "@remix-run/node": "*",
     "@remix-run/react": "*",
     "@remix-run/serve": "*",
+    "clsx": "^2.1.1",
     "isbot": "^4.1.0",
     "react": "^18.2.0",
     "react-dom": "^18.2.0"
   },
   "devDependencies": {
+    "@cloudflare/workers-types": "^4.20250819.0",
+    "@remix-run/cloudflare-pages": "^2.17.0",
     "@remix-run/dev": "*",
     "@types/react": "^18.2.20",
     "@types/react-dom": "^18.2.7",
@@ -35,7 +43,8 @@
     "tailwindcss": "^3.4.4",
     "typescript": "^5.1.6",
     "vite": "^6.0.0",
-    "vite-tsconfig-paths": "^4.2.1"
+    "vite-tsconfig-paths": "^4.2.1",
+    "wrangler": "^3.114.13"
   },
   "engines": {
     "node": ">=20.0.0"
