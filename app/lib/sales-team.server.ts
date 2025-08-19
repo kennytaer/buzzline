@@ -26,6 +26,12 @@ export class SalesTeamService {
   }
 
   async createMember(orgId: string, memberData: Omit<SalesTeamMember, 'id' | 'createdAt' | 'updatedAt'>): Promise<SalesTeamMember> {
+    // Check for duplicate email first
+    const existingMember = await this.kv.findSalesTeamMemberByEmail(orgId, memberData.email);
+    if (existingMember) {
+      throw new Error('A team member with this email already exists');
+    }
+
     const id = `stm_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
     const now = new Date().toISOString();
     
@@ -40,7 +46,10 @@ export class SalesTeamService {
     const key = `org:${orgId}:salesteam:${id}`;
     await this.kv.putSalesTeamData(key, member);
 
-    // Update members list
+    // Update indexes (new efficient system)
+    await this.kv.updateSalesTeamIndexes(orgId, id, member);
+
+    // Update legacy list for backward compatibility
     const membersList = await this.getAllMembers(orgId);
     membersList.push(member);
     const listKey = `org:${orgId}:salesteam:list`;
@@ -60,6 +69,10 @@ export class SalesTeamService {
     return data || [];
   }
 
+  async getMembersPaginated(orgId: string, page: number = 1, limit: number = 20, search?: string) {
+    return await this.kv.getSalesTeamPaginated(orgId, page, limit, search);
+  }
+
   async getActiveMembers(orgId: string): Promise<SalesTeamMember[]> {
     const members = await this.getAllMembers(orgId);
     return members.filter(member => member.isActive);
@@ -68,6 +81,14 @@ export class SalesTeamService {
   async updateMember(orgId: string, id: string, updates: Partial<Omit<SalesTeamMember, 'id' | 'createdAt'>>): Promise<SalesTeamMember | null> {
     const member = await this.getMember(orgId, id);
     if (!member) return null;
+
+    // Check for duplicate email if email is being updated
+    if (updates.email && updates.email !== member.email) {
+      const existingMember = await this.kv.findSalesTeamMemberByEmail(orgId, updates.email);
+      if (existingMember && existingMember.id !== id) {
+        throw new Error('A team member with this email already exists');
+      }
+    }
 
     const updatedMember: SalesTeamMember = {
       ...member,
@@ -79,7 +100,10 @@ export class SalesTeamService {
     const key = `org:${orgId}:salesteam:${id}`;
     await this.kv.putSalesTeamData(key, updatedMember);
 
-    // Update members list
+    // Update indexes (new efficient system)
+    await this.kv.updateSalesTeamIndexes(orgId, id, updatedMember);
+
+    // Update legacy list for backward compatibility
     const membersList = await this.getAllMembers(orgId);
     const index = membersList.findIndex(m => m.id === id);
     if (index >= 0) {
