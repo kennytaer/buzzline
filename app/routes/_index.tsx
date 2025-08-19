@@ -1,5 +1,5 @@
-import type { MetaFunction, LoaderFunctionArgs } from "@remix-run/node";
-import { redirect } from "@remix-run/node";
+import type { MetaFunction, LoaderFunctionArgs } from "@remix-run/cloudflare";
+import { redirect } from "@remix-run/cloudflare";
 import { SignedIn, SignedOut, SignInButton, UserButton } from "@clerk/remix";
 import { getAuth } from "@clerk/remix/ssr.server";
 

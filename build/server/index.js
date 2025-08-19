@@ -2,107 +2,33 @@ var __defProp = Object.defineProperty;
 var __defNormalProp = (obj, key, value) => key in obj ? __defProp(obj, key, { enumerable: true, configurable: true, writable: true, value }) : obj[key] = value;
 var __publicField = (obj, key, value) => __defNormalProp(obj, typeof key !== "symbol" ? key + "" : key, value);
 import { jsx, jsxs, Fragment } from "react/jsx-runtime";
-import { PassThrough } from "node:stream";
-import { createReadableStreamFromReadable, redirect, json } from "@remix-run/node";
 import { RemixServer, Outlet, Meta, Links, ScrollRestoration, Scripts, useLoaderData, useActionData, Form, useNavigate, Link, useSearchParams, useLocation } from "@remix-run/react";
 import { isbot } from "isbot";
-import { renderToPipeableStream } from "react-dom/server";
+import { renderToReadableStream } from "react-dom/server";
 import { ClerkApp, OrganizationSwitcher, UserButton, SignedOut, SignInButton } from "@clerk/remix";
 import { rootAuthLoader, getAuth } from "@clerk/remix/ssr.server";
+import { redirect, json } from "@remix-run/cloudflare";
 import "clsx";
 import { useState, useEffect } from "react";
 const ABORT_DELAY = 5e3;
-function handleRequest(request, responseStatusCode, responseHeaders, remixContext, loadContext) {
-  return isbot(request.headers.get("user-agent") || "") ? handleBotRequest(
-    request,
-    responseStatusCode,
-    responseHeaders,
-    remixContext
-  ) : handleBrowserRequest(
-    request,
-    responseStatusCode,
-    responseHeaders,
-    remixContext
+async function handleRequest(request, responseStatusCode, responseHeaders, remixContext, loadContext) {
+  const body = await renderToReadableStream(
+    /* @__PURE__ */ jsx(RemixServer, { context: remixContext, url: request.url }),
+    {
+      signal: AbortSignal.timeout(ABORT_DELAY),
+      onError(error) {
+        console.error(error);
+        responseStatusCode = 500;
+      }
+    }
   );
-}
-function handleBotRequest(request, responseStatusCode, responseHeaders, remixContext) {
-  return new Promise((resolve, reject) => {
-    let shellRendered = false;
-    const { pipe, abort } = renderToPipeableStream(
-      /* @__PURE__ */ jsx(
-        RemixServer,
-        {
-          context: remixContext,
-          url: request.url,
-          abortDelay: ABORT_DELAY
-        }
-      ),
-      {
-        onAllReady() {
-          shellRendered = true;
-          const body = new PassThrough();
-          const stream = createReadableStreamFromReadable(body);
-          responseHeaders.set("Content-Type", "text/html");
-          resolve(
-            new Response(stream, {
-              headers: responseHeaders,
-              status: responseStatusCode
-            })
-          );
-          pipe(body);
-        },
-        onShellError(error) {
-          reject(error);
-        },
-        onError(error) {
-          responseStatusCode = 500;
-          if (shellRendered) {
-            console.error(error);
-          }
-        }
-      }
-    );
-    setTimeout(abort, ABORT_DELAY);
-  });
-}
-function handleBrowserRequest(request, responseStatusCode, responseHeaders, remixContext) {
-  return new Promise((resolve, reject) => {
-    let shellRendered = false;
-    const { pipe, abort } = renderToPipeableStream(
-      /* @__PURE__ */ jsx(
-        RemixServer,
-        {
-          context: remixContext,
-          url: request.url,
-          abortDelay: ABORT_DELAY
-        }
-      ),
-      {
-        onShellReady() {
-          shellRendered = true;
-          const body = new PassThrough();
-          const stream = createReadableStreamFromReadable(body);
-          responseHeaders.set("Content-Type", "text/html");
-          resolve(
-            new Response(stream, {
-              headers: responseHeaders,
-              status: responseStatusCode
-            })
-          );
-          pipe(body);
-        },
-        onShellError(error) {
-          reject(error);
-        },
-        onError(error) {
-          responseStatusCode = 500;
-          if (shellRendered) {
-            console.error(error);
-          }
-        }
-      }
-    );
-    setTimeout(abort, ABORT_DELAY);
+  if (isbot(request.headers.get("user-agent") || "")) {
+    await body.allReady;
+  }
+  responseHeaders.set("Content-Type", "text/html");
+  return new Response(body, {
+    headers: responseHeaders,
+    status: responseStatusCode
   });
 }
 const entryServer = /* @__PURE__ */ Object.freeze(/* @__PURE__ */ Object.defineProperty({

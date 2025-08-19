@@ -1,7 +1,7 @@
 import { Outlet, useLoaderData, useLocation } from "@remix-run/react";
-import type { LoaderFunctionArgs } from "@remix-run/node";
+import type { LoaderFunctionArgs } from "@remix-run/cloudflare";
 import { getAuth } from "@clerk/remix/ssr.server";
-import { redirect } from "@remix-run/node";
+import { redirect } from "@remix-run/cloudflare";
 import { OrganizationSwitcher, UserButton } from "@clerk/remix";
 import { Icons } from "~/components/Icons";
 

@@ -1,7 +1,7 @@
 import { useLoaderData } from "@remix-run/react";
-import type { LoaderFunctionArgs } from "@remix-run/node";
+import type { LoaderFunctionArgs } from "@remix-run/cloudflare";
 import { getAuth } from "@clerk/remix/ssr.server";
-import { redirect, json } from "@remix-run/node";
+import { redirect, json } from "@remix-run/cloudflare";
 import { getKVService } from "~/lib/kv.server";
 
 export async function loader(args: LoaderFunctionArgs) {
