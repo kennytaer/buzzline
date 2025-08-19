@@ -99,7 +99,7 @@ export default function NewTeamMember() {
       )}
 
       {/* Form */}
-      <div className="bg-white rounded-lg border border-accent-200 p-6">
+      <div className="card p-6">
         <Form method="post" className="space-y-6">
           {/* Basic Information */}
           <div className="space-y-4">
@@ -107,7 +107,7 @@ export default function NewTeamMember() {
             
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
-                <label className="block text-sm font-medium text-accent-700 mb-2">
+                <label className="form-label mb-2">
                   First Name *
                 </label>
                 <input
@@ -115,13 +115,13 @@ export default function NewTeamMember() {
                   name="firstName"
                   value={formData.firstName}
                   onChange={(e) => handleInputChange("firstName", e.target.value)}
-                  className="w-full px-3 py-2 border border-accent-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
+                  className="form-input"
                   required
                 />
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-accent-700 mb-2">
+                <label className="form-label mb-2">
                   Last Name *
                 </label>
                 <input
@@ -129,14 +129,14 @@ export default function NewTeamMember() {
                   name="lastName"
                   value={formData.lastName}
                   onChange={(e) => handleInputChange("lastName", e.target.value)}
-                  className="w-full px-3 py-2 border border-accent-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
+                  className="form-input"
                   required
                 />
               </div>
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-accent-700 mb-2">
+              <label className="form-label mb-2">
                 Email Address *
               </label>
               <input
@@ -144,13 +144,13 @@ export default function NewTeamMember() {
                 name="email"
                 value={formData.email}
                 onChange={(e) => handleInputChange("email", e.target.value)}
-                className="w-full px-3 py-2 border border-accent-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
+                className="form-input"
                 required
               />
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-accent-700 mb-2">
+              <label className="form-label mb-2">
                 Phone Number
               </label>
               <input
@@ -158,7 +158,7 @@ export default function NewTeamMember() {
                 name="phone"
                 value={formData.phone}
                 onChange={(e) => handleInputChange("phone", e.target.value)}
-                className="w-full px-3 py-2 border border-accent-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
+                className="form-input"
               />
             </div>
           </div>
@@ -169,7 +169,7 @@ export default function NewTeamMember() {
             
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
-                <label className="block text-sm font-medium text-accent-700 mb-2">
+                <label className="form-label mb-2">
                   Job Title
                 </label>
                 <input
@@ -178,12 +178,12 @@ export default function NewTeamMember() {
                   value={formData.title}
                   onChange={(e) => handleInputChange("title", e.target.value)}
                   placeholder="e.g., Sales Representative"
-                  className="w-full px-3 py-2 border border-accent-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
+                  className="form-input"
                 />
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-accent-700 mb-2">
+                <label className="form-label mb-2">
                   Department
                 </label>
                 <input
@@ -192,13 +192,13 @@ export default function NewTeamMember() {
                   value={formData.department}
                   onChange={(e) => handleInputChange("department", e.target.value)}
                   placeholder="e.g., Sales, Marketing"
-                  className="w-full px-3 py-2 border border-accent-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
+                  className="form-input"
                 />
               </div>
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-accent-700 mb-2">
+              <label className="form-label mb-2">
                 Bio / Description
               </label>
               <textarea
@@ -207,7 +207,7 @@ export default function NewTeamMember() {
                 onChange={(e) => handleInputChange("bio", e.target.value)}
                 rows={3}
                 placeholder="Brief description of the team member's role and expertise..."
-                className="w-full px-3 py-2 border border-accent-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
+                className="form-textarea"
               />
             </div>
           </div>

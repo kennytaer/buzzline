@@ -97,6 +97,166 @@ export class KVService {
     await this.updateContactIndexes(orgId, contactId, contactData);
   }
 
+  // Bulk operations for CSV imports
+  async createContactsBulk(orgId: string, contacts: Array<{id: string, data: any}>) {
+    console.log("BULK CONTACT CREATE - Count:", contacts.length);
+    const BATCH_SIZE = 50; // Process in smaller batches to avoid timeouts
+    
+    const results = {
+      created: [] as string[],
+      errors: [] as {id: string, error: string}[]
+    };
+
+    // Process in batches
+    for (let i = 0; i < contacts.length; i += BATCH_SIZE) {
+      const batch = contacts.slice(i, i + BATCH_SIZE);
+      console.log(`BATCH ${Math.floor(i/BATCH_SIZE) + 1}/${Math.ceil(contacts.length/BATCH_SIZE)} - Processing ${batch.length} contacts`);
+      
+      // Create contacts in parallel within batch
+      const batchPromises = batch.map(async ({id, data}) => {
+        try {
+          const contactData = {
+            ...data,
+            id,
+            orgId,
+            createdAt: new Date().toISOString(),
+            optedOut: false
+          };
+
+          // Store contact
+          const key = this.getOrgKey(orgId, 'contact', id);
+          await this.main.put(key, JSON.stringify(contactData));
+          
+          results.created.push(id);
+          return {success: true, id, contactData};
+        } catch (error) {
+          console.error(`Failed to create contact ${id}:`, error);
+          results.errors.push({id, error: 'Failed to store contact'});
+          return {success: false, id, error};
+        }
+      });
+
+      const batchResults = await Promise.all(batchPromises);
+      
+      // Update indexes for successful contacts in this batch
+      const successfulContacts = batchResults.filter(r => r.success);
+      if (successfulContacts.length > 0) {
+        await this.updateContactIndexesBulk(orgId, successfulContacts.map(r => ({
+          id: r.id,
+          data: (r as any).contactData
+        })));
+      }
+    }
+
+    console.log("BULK CREATE COMPLETE - Created:", results.created.length, "Errors:", results.errors.length);
+    return results;
+  }
+
+  async updateContactIndexesBulk(orgId: string, contacts: Array<{id: string, data: any}>) {
+    if (contacts.length === 0) return;
+    
+    console.log("BULK INDEX UPDATE - Count:", contacts.length);
+    const CONTACTS_PER_PAGE = 50;
+    
+    // Get current metadata
+    const metaKey = this.getContactMetaKey(orgId);
+    let meta = await this.cache.get(metaKey);
+    let metadata = meta ? JSON.parse(meta) : { totalContacts: 0, totalPages: 0, lastUpdated: new Date().toISOString() };
+    
+    // Update total count
+    metadata.totalContacts += contacts.length;
+    metadata.totalPages = Math.ceil(metadata.totalContacts / CONTACTS_PER_PAGE);
+    metadata.lastUpdated = new Date().toISOString();
+    
+    // Get page 1 to add new contacts (newest first)
+    const pageKey = this.getContactIndexKey(orgId, 1);
+    let pageData = await this.cache.get(pageKey);
+    let page1Contacts = pageData ? JSON.parse(pageData) : [];
+    
+    // Add new contacts to beginning of page 1
+    const newIndexEntries = contacts.map(({data}) => this.createContactIndexEntry(data));
+    page1Contacts.unshift(...newIndexEntries);
+    
+    // Redistribute if page 1 is too large
+    if (page1Contacts.length > CONTACTS_PER_PAGE) {
+      await this.redistributeContactPages(orgId, page1Contacts, CONTACTS_PER_PAGE);
+    } else {
+      await this.cache.put(pageKey, JSON.stringify(page1Contacts));
+    }
+    
+    // Update search index in bulk
+    const searchKey = this.getContactSearchKey(orgId);
+    let searchData = await this.cache.get(searchKey);
+    let searchIndex = searchData ? JSON.parse(searchData) : {};
+    
+    // Add all new contacts to search index
+    for (const {id, data} of contacts) {
+      const searchText = [
+        data.firstName,
+        data.lastName,
+        data.email,
+        data.phone,
+        data.metadata ? Object.values(data.metadata).join(' ') : ''
+      ].filter(Boolean).join(' ').toLowerCase();
+      
+      searchIndex[id] = {
+        searchText,
+        firstName: data.firstName,
+        lastName: data.lastName,
+        email: data.email,
+        phone: data.phone,
+        createdAt: data.createdAt
+      };
+    }
+    
+    // Update search index and metadata
+    await Promise.all([
+      this.cache.put(searchKey, JSON.stringify(searchIndex)),
+      this.cache.put(metaKey, JSON.stringify(metadata))
+    ]);
+    
+    console.log("BULK INDEX UPDATE COMPLETE");
+  }
+
+  async findContactsByEmailsOrPhones(orgId: string, emailsAndPhones: Array<{email?: string, phone?: string}>) {
+    console.log("BULK DUPLICATE CHECK - Count:", emailsAndPhones.length);
+    
+    // Try to use search index first (much faster)
+    const searchKey = this.getContactSearchKey(orgId);
+    let searchData = await this.cache.get(searchKey);
+    
+    if (searchData) {
+      const searchIndex = JSON.parse(searchData);
+      const found: Array<{email?: string, phone?: string, contact: any}> = [];
+      
+      for (const {email, phone} of emailsAndPhones) {
+        for (const [contactId, indexEntry] of Object.entries(searchIndex) as [string, any][]) {
+          if (email && indexEntry.email && indexEntry.email.toLowerCase() === email.toLowerCase()) {
+            const fullContact = await this.getContact(orgId, contactId);
+            if (fullContact) {
+              found.push({email, phone, contact: fullContact});
+              break;
+            }
+          }
+          if (phone && indexEntry.phone && indexEntry.phone === phone) {
+            const fullContact = await this.getContact(orgId, contactId);
+            if (fullContact) {
+              found.push({email, phone, contact: fullContact});
+              break;
+            }
+          }
+        }
+      }
+      
+      console.log("BULK DUPLICATE CHECK COMPLETE - Found:", found.length);
+      return found;
+    }
+    
+    // Fallback to old method if no search index
+    console.log("BULK DUPLICATE CHECK fallback - no search index");
+    return [];
+  }
+
   // Contact indexing system
   private getContactIndexKey(orgId: string, page: number): string {
     return `org:${orgId}:contact_index:page_${page}`;
