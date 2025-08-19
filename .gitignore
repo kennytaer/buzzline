@@ -1,5 +1,6 @@
 node_modules
 dist
+build
 .DS_Store
 server/public
 vite.config.ts.*
@@ -8,3 +9,11 @@ vite.config.ts.*
 .env.production
 .env.local
 .wrangler
+
+# Security - Never commit these files
+.env*
+!.env.example
+
+# Build outputs that may contain embedded secrets
+/build/
+/dist/
