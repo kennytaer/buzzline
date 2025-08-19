@@ -1,6 +1,5 @@
 # Configuration for both local development and Pages
 name = "buzzline"
-account_id = "a9ea44eb9bdb4a05b109fc989ad73804"
 compatibility_date = "2024-10-15"
 compatibility_flags = ["nodejs_compat"]
 pages_build_output_dir = "./"
