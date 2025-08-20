@@ -4,7 +4,9 @@ import type { LoaderFunctionArgs, ActionFunctionArgs } from "@remix-run/cloudfla
 import { getAuth } from "@clerk/remix/ssr.server";
 import { redirect, json } from "@remix-run/cloudflare";
 import { parseCSV, generateId, isValidEmail, isValidPhone } from "~/lib/utils";
-import { getKVService } from "~/lib/kv.server";
+import { getContactService } from "~/lib/services/contact.server";
+import { getContactListService } from "~/lib/services/contactlist.server";
+import { getKVService } from "~/lib/kv.server"; // TODO: Remove once custom fields are migrated
 
 export async function loader(args: LoaderFunctionArgs) {
   const { userId, orgId } = await getAuth(args);
@@ -13,10 +15,10 @@ export async function loader(args: LoaderFunctionArgs) {
     return redirect("/dashboard");
   }
 
-  const kvService = getKVService(args.context);
+  const kvService = getKVService(args.context); // TODO: Replace with custom field service
   const existingCustomFields = await kvService.getCustomFields(orgId);
 
-  return { orgId, existingCustomFields };
+  return json({ orgId, existingCustomFields });
 }
 
 export async function action(args: ActionFunctionArgs) {
@@ -28,18 +30,33 @@ export async function action(args: ActionFunctionArgs) {
   }
 
   const formData = await request.formData();
-  const csvContent = formData.get("csvContent") as string;
-  const listName = formData.get("listName") as string;
   const step = formData.get("step") as string;
+  const listName = formData.get("listName") as string;
+  const hasHeaders = formData.get("hasHeaders") === "true";
   const reactivateDuplicates = formData.get("reactivateDuplicates") === "true";
-
-  if (!csvContent || !listName) {
-    return json({ error: "CSV content and list name are required" }, { status: 400 });
+  
+  // Handle file upload for preview step
+  let csvContent: string;
+  if (step === "preview") {
+    const csvFile = formData.get("csvFile") as File;
+    if (!csvFile || !listName) {
+      return json({ error: "CSV file and list name are required" }, { status: 400 });
+    }
+    csvContent = await csvFile.text();
+  } else {
+    // For import step, get content from hidden field (smaller, processed data)
+    csvContent = formData.get("csvContent") as string;
+    if (!csvContent || !listName) {
+      return json({ error: "CSV content and list name are required" }, { status: 400 });
+    }
   }
 
   try {
-    const kvService = getKVService(args.context);
-    const rows = parseCSV(csvContent);
+    const contactService = getContactService(args.context);
+    const contactListService = getContactListService(args.context);
+    const kvService = getKVService(args.context); // TODO: Remove once custom fields are migrated
+    const rows = parseCSV(csvContent, hasHeaders);
+    
     
     if (rows.length === 0) {
       return json({ error: "CSV file appears to be empty or invalid" }, { status: 400 });
@@ -55,7 +72,9 @@ export async function action(args: ActionFunctionArgs) {
         headers,
         preview,
         totalRows: rows.length,
-        listName
+        listName,
+        hasHeaders,
+        csvContent // Include CSV content for the import step
       });
     }
 
@@ -67,10 +86,22 @@ export async function action(args: ActionFunctionArgs) {
       if (mappingData) {
         Object.assign(fieldMapping, JSON.parse(mappingData));
       }
+      
+      console.log("Field mapping debug:", {
+        mappingDataExists: !!mappingData,
+        fieldMappingKeys: Object.keys(fieldMapping),
+        fieldMappingValues: Object.values(fieldMapping),
+        sampleContact: rows[0],
+        sampleContactKeys: Object.keys(rows[0] || {}),
+        fullMapping: fieldMapping
+      });
+
+      // Debug each contact creation
+      console.log("Creating contacts with field mapping:", fieldMapping);
 
       // Create contact list
       const listId = generateId();
-      await kvService.createContactList(orgId, listId, {
+      await contactListService.createContactList(orgId, listId, {
         name: listName,
         description: `Imported CSV with ${rows.length} contacts`
       });
@@ -104,15 +135,59 @@ export async function action(args: ActionFunctionArgs) {
       for (let i = 0; i < rows.length; i++) {
         const row = rows[i];
         
+        
         try {
+          // Create reverse mapping to find CSV columns for each contact field
+          const reverseMapping: Record<string, string> = {};
+          for (const [csvCol, contactField] of Object.entries(fieldMapping)) {
+            if (contactField) {
+              reverseMapping[contactField] = csvCol;
+            }
+          }
+          
           const contact: any = {
-            firstName: row[fieldMapping.firstName] || '',
-            lastName: row[fieldMapping.lastName] || '',
-            email: row[fieldMapping.email] || '',
-            phone: row[fieldMapping.phone] || '',
+            firstName: reverseMapping.firstName ? row[reverseMapping.firstName] || '' : '',
+            lastName: reverseMapping.lastName ? row[reverseMapping.lastName] || '' : '',
+            email: reverseMapping.email ? row[reverseMapping.email] || '' : '',
+            phone: reverseMapping.phone ? row[reverseMapping.phone] || '' : '',
             metadata: {},
             contactListIds: [listId]
           };
+
+          // Debug field mapping extraction
+          const debugInfo = {
+            rowData: row,
+            rowKeys: Object.keys(row),
+            reverseMapping,
+            firstNameCSVColumn: reverseMapping.firstName,
+            lastNameCSVColumn: reverseMapping.lastName,
+            emailCSVColumn: reverseMapping.email,
+            phoneCSVColumn: reverseMapping.phone,
+            extractedFirstName: reverseMapping.firstName ? row[reverseMapping.firstName] : 'NO_MAPPING',
+            extractedLastName: reverseMapping.lastName ? row[reverseMapping.lastName] : 'NO_MAPPING',
+            extractedEmail: reverseMapping.email ? row[reverseMapping.email] : 'NO_MAPPING',
+            extractedPhone: reverseMapping.phone ? row[reverseMapping.phone] : 'NO_MAPPING',
+            finalContact: {
+              firstName: contact.firstName,
+              lastName: contact.lastName,
+              email: contact.email,
+              phone: contact.phone
+            }
+          };
+          
+          console.log(`Contact ${i} creation debug:`, debugInfo);
+          
+          // Extra debug for first contact to understand the mapping issue
+          if (i === 0) {
+            console.log("FIRST CONTACT DETAILED DEBUG:");
+            console.log("Available CSV columns:", Object.keys(row));
+            console.log("Field mapping object:", fieldMapping);
+            
+            // Check if the mapped field exists in the row
+            for (const [csvCol, contactField] of Object.entries(fieldMapping)) {
+              console.log(`Mapping: "${csvCol}" -> "${contactField}", Value in row: "${row[csvCol]}"`);
+            }
+          }
 
           // Validate email and phone
           if (contact.email && !isValidEmail(contact.email)) {
@@ -128,11 +203,8 @@ export async function action(args: ActionFunctionArgs) {
           // Add any additional mapped fields to metadata
           for (const [csvCol, contactField] of Object.entries(fieldMapping)) {
             if (!['firstName', 'lastName', 'email', 'phone'].includes(contactField) && contactField) {
-              // Clean up the field name for metadata storage
-              const cleanFieldName = contactField.toLowerCase().replace(/[^a-z0-9]/g, '_');
-              contact.metadata[cleanFieldName] = row[csvCol] || '';
-              // Also store the original display name for UI purposes
-              contact.metadata[`${cleanFieldName}_display_name`] = contactField;
+              // Store custom field with original name (no cleaning needed)
+              contact.metadata[contactField] = row[csvCol] || '';
             }
           }
 
@@ -168,7 +240,7 @@ export async function action(args: ActionFunctionArgs) {
         phone: contact.phone || undefined
       }));
       
-      const existingContacts = await kvService.findContactsByEmailsOrPhones(orgId, emailsAndPhones);
+      const existingContacts = await contactService.findContactsByEmailsOrPhones(orgId, emailsAndPhones);
       const existingContactMap = new Map();
       existingContacts.forEach(({email, phone, contact}) => {
         if (email) existingContactMap.set(email.toLowerCase(), contact);
@@ -229,7 +301,7 @@ export async function action(args: ActionFunctionArgs) {
       // Fourth pass: bulk create new contacts
       if (newContacts.length > 0) {
         console.log("BULK CSV IMPORT - Creating", newContacts.length, "new contacts");
-        const bulkResults = await kvService.createContactsBulk(orgId, newContacts);
+        const bulkResults = await contactService.createContactsBulk(orgId, newContacts);
         
         // Handle any bulk creation errors
         for (const error of bulkResults.errors) {
@@ -246,7 +318,7 @@ export async function action(args: ActionFunctionArgs) {
           const batch = duplicateUpdates.slice(i, i + UPDATE_BATCH_SIZE);
           await Promise.all(batch.map(async ({contact, updates}) => {
             try {
-              await kvService.updateContact(orgId, contact.id, updates);
+              await contactService.updateContact(orgId, contact.id, updates);
             } catch (error) {
               console.error("Failed to update duplicate contact:", error);
               errors.push({ row: -1, error: "Failed to update duplicate contact" });
@@ -256,6 +328,37 @@ export async function action(args: ActionFunctionArgs) {
       }
 
       console.log("BULK CSV IMPORT COMPLETE - New:", newContacts.length, "Updated:", duplicateUpdates.length, "Errors:", errors.length);
+
+      // Update contact list with all contact IDs (new + updated duplicates)
+      const allContactIds = [
+        ...contactIds, // New contacts
+        ...duplicatesUpdated, // Reactivated duplicates 
+        ...skippedDuplicates // Existing duplicates that were updated
+      ];
+      
+      console.log("CONTACT LIST ASSIGNMENT DEBUG:", {
+        listId,
+        newContactIds: contactIds,
+        duplicatesUpdated,
+        skippedDuplicates,
+        allContactIds,
+        totalContactsToAssign: allContactIds.length
+      });
+      
+      if (allContactIds.length > 0) {
+        try {
+          await contactListService.updateContactList(orgId, listId, {
+            contactIds: allContactIds
+          });
+          console.log("✅ Successfully updated contact list with", allContactIds.length, "contact IDs");
+        } catch (error) {
+          console.error("❌ Failed to update contact list with contact IDs:", error);
+          // This is a critical issue that should be visible in the response
+          errors.push({ row: -1, error: "Failed to assign contacts to segment" });
+        }
+      } else {
+        console.log("⚠️ No contact IDs to assign to segment");
+      }
 
       return json({
         step: "complete",
@@ -280,8 +383,9 @@ export async function action(args: ActionFunctionArgs) {
 export default function ContactUpload() {
   const { orgId, existingCustomFields } = useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>();
-  const [csvContent, setCsvContent] = useState("");
+  const [csvFile, setCsvFile] = useState<File | null>(null);
   const [listName, setListName] = useState("");
+  const [hasHeaders, setHasHeaders] = useState(true);
   const [fieldMapping, setFieldMapping] = useState<Record<string, string>>({});
   const [customKeys, setCustomKeys] = useState<string[]>(existingCustomFields || []);
   const [newCustomKeys, setNewCustomKeys] = useState<Record<string, string>>({});
@@ -289,12 +393,8 @@ export default function ContactUpload() {
 
   const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
-    if (file && file.type === "text/csv") {
-      const reader = new FileReader();
-      reader.onload = (e) => {
-        setCsvContent(e.target?.result as string);
-      };
-      reader.readAsText(file);
+    if (file && (file.type === "text/csv" || file.name.endsWith('.csv'))) {
+      setCsvFile(file);
     }
   };
 
@@ -351,15 +451,16 @@ export default function ContactUpload() {
 
           <Form method="post">
             <input type="hidden" name="step" value="import" />
-            <input type="hidden" name="csvContent" value={csvContent} />
-            <input type="hidden" name="listName" value={listName} />
+            <input type="hidden" name="csvContent" value={actionData && 'csvContent' in actionData ? actionData.csvContent : ''} />
+            <input type="hidden" name="listName" value={actionData && 'listName' in actionData ? actionData.listName : ''} />
+            <input type="hidden" name="hasHeaders" value={actionData && 'hasHeaders' in actionData ? actionData.hasHeaders.toString() : 'true'} />
             
             <div className="space-y-6">
               {/* Field Mapping */}
               <div className="bg-white shadow rounded-lg p-6">
                 <h3 className="text-lg font-medium mb-4">Map CSV Columns</h3>
                 <p className="text-sm text-gray-600 mb-6">
-                  For each CSV column, choose what field it should map to. You can use standard fields or create custom ones.
+                  For each CSV column, choose what field to import it as. Select "Do not import" to skip columns you don't need.
                 </p>
 
                 <div className="space-y-4">
@@ -379,10 +480,10 @@ export default function ContactUpload() {
                           </div>
                         </div>
 
-                        {/* Maps to (Dropdown) */}
+                        {/* Import As (Dropdown) */}
                         <div>
                           <label className="block text-sm font-medium text-gray-700 mb-2">
-                            Maps to Field
+                            Import as
                           </label>
                           <select
                             className="block w-full rounded-md border-gray-300 shadow-sm focus:border-primary-500 focus:ring-primary-500 px-3 py-2"
@@ -405,7 +506,7 @@ export default function ContactUpload() {
                               }));
                             }}
                           >
-                            <option value="">-- Select Field --</option>
+                            <option value="">Do not import</option>
                             <optgroup label="Standard Fields">
                               <option value="firstName">First Name</option>
                               <option value="lastName">Last Name</option>
@@ -640,7 +741,7 @@ export default function ContactUpload() {
           </div>
         )}
 
-        <Form method="post" className="space-y-6">
+        <Form method="post" encType="multipart/form-data" className="space-y-6">
           <input type="hidden" name="step" value="preview" />
           
           <div>
@@ -664,6 +765,7 @@ export default function ContactUpload() {
             </label>
             <input
               type="file"
+              name="csvFile"
               accept=".csv"
               onChange={handleFileUpload}
               className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-medium file:bg-primary-50 file:text-primary-700 hover:file:bg-primary-100"
@@ -674,12 +776,29 @@ export default function ContactUpload() {
             </p>
           </div>
 
-          <input type="hidden" name="csvContent" value={csvContent} />
+          <div>
+            <label className="flex items-center">
+              <input
+                type="checkbox"
+                checked={hasHeaders}
+                onChange={(e) => setHasHeaders(e.target.checked)}
+                className="h-4 w-4 text-primary-600 border-gray-300 rounded focus:ring-primary-500"
+              />
+              <span className="ml-2 text-sm text-gray-700">
+                My CSV file has header row
+              </span>
+            </label>
+            <p className="mt-1 text-xs text-gray-500">
+              Uncheck this if your CSV file doesn't have column headers in the first row
+            </p>
+          </div>
+
+          <input type="hidden" name="hasHeaders" value={hasHeaders.toString()} />
 
           <div className="flex justify-end">
             <button
               type="submit"
-              disabled={!csvContent || !listName}
+              disabled={!csvFile || !listName}
               className="px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-primary-500 hover:bg-primary-600 disabled:bg-gray-400 disabled:cursor-not-allowed"
             >
               Preview Import

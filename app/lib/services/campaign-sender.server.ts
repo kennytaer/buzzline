@@ -1,7 +1,8 @@
-import { getKVService } from "./kv.server";
-import { MessagingService } from "./messaging.server";
-import { getSalesTeamService } from "./sales-team.server";
-import { formatPhoneNumber } from "./utils";
+import { ContactService, getContactService } from "./contact.server";
+import { CampaignService, getCampaignService } from "./campaign.server";
+import { SalesTeamService, getSalesTeamService } from "./salesteam.server";
+import { MessagingService } from "../messaging.server";
+import { formatPhoneNumber } from "../utils";
 
 export interface SendCampaignResult {
   success: boolean;
@@ -16,15 +17,17 @@ export interface SendCampaignResult {
   }>;
 }
 
-export class CampaignSender {
-  private kvService: any;
+export class CampaignSenderService {
+  private contactService: ContactService;
+  private campaignService: CampaignService;
+  private salesTeamService: SalesTeamService;
   private messagingService: MessagingService;
-  private salesTeamService: any;
 
   constructor(context: any) {
-    this.kvService = getKVService(context);
-    this.messagingService = new MessagingService();
+    this.contactService = getContactService(context);
+    this.campaignService = getCampaignService(context);
     this.salesTeamService = getSalesTeamService(context);
+    this.messagingService = new MessagingService();
   }
 
   async sendCampaign(orgId: string, campaignId: string): Promise<SendCampaignResult> {
@@ -38,20 +41,17 @@ export class CampaignSender {
     };
 
     try {
-      // Get campaign details
-      const campaign = await this.kvService.getCampaign(orgId, campaignId);
+      const campaign = await this.campaignService.getCampaign(orgId, campaignId);
       if (!campaign) {
         throw new Error('Campaign not found');
       }
 
-      // Get contacts based on targeting mode
+      // Optimized contact retrieval
       let allContacts: any[] = [];
       if (campaign.targetingMode === 'specific' && campaign.specificContactIds) {
-        // Individual targeting mode - get specific contacts
-        allContacts = await this.getSpecificContacts(orgId, campaign.specificContactIds);
+        allContacts = await this.contactService.getContactsByIds(orgId, campaign.specificContactIds);
       } else if (campaign.contactListIds) {
-        // Bulk targeting mode - get contacts from lists
-        allContacts = await this.getAllCampaignContacts(orgId, campaign.contactListIds);
+        allContacts = await this.contactService.getContactsByListIds(orgId, campaign.contactListIds);
       }
       
       result.totalContacts = allContacts.length;
@@ -63,10 +63,7 @@ export class CampaignSender {
         throw new Error(errorMsg);
       }
 
-      console.log(`Starting campaign ${campaignId}: ${campaign.type} to ${allContacts.length} contacts`);
-
-      // Update campaign status
-      await this.kvService.updateCampaign(orgId, campaignId, {
+      await this.campaignService.updateCampaign(orgId, campaignId, {
         status: 'sending',
         sentAt: new Date().toISOString()
       });
@@ -77,7 +74,6 @@ export class CampaignSender {
         if (campaign.salesSettings?.useRoundRobin) {
           salesTeamMembers = await this.salesTeamService.getActiveMembers(orgId);
         } else if (campaign.salesSettings?.selectedMemberIds?.length) {
-          // Get specific selected members
           const allMembers = await this.salesTeamService.getAllMembers(orgId);
           salesTeamMembers = allMembers.filter((member: any) => 
             campaign.salesSettings.selectedMemberIds.includes(member.id) && member.isActive
@@ -89,81 +85,26 @@ export class CampaignSender {
         }
       }
 
-      // Send messages based on campaign type
-      for (let i = 0; i < allContacts.length; i++) {
-        const contact = allContacts[i];
-        
-        // Skip opted-out contacts
-        if (contact.optedOut) {
-          console.log(`Skipping opted-out contact: ${contact.id}`);
-          continue;
-        }
+      // Send messages to contacts
+      await this.sendMessagesToContacts(
+        orgId, 
+        campaignId, 
+        campaign, 
+        allContacts, 
+        salesTeamMembers, 
+        result
+      );
 
-        // Get sales team member for this contact (round-robin or specific)
-        let salesMember = null;
-        if (campaign.campaignType === 'sales' && salesTeamMembers.length > 0) {
-          if (campaign.salesSettings?.useRoundRobin) {
-            // Use round-robin from the service
-            salesMember = await this.salesTeamService.getRoundRobinMember(orgId);
-          } else {
-            // Use simple rotation through selected members
-            salesMember = salesTeamMembers[i % salesTeamMembers.length];
-          }
-        }
-
-        // Send email if campaign includes email
-        if ((campaign.type === 'email' || campaign.type === 'both') && campaign.emailTemplate) {
-          try {
-            await this.sendEmailToContact(orgId, campaignId, campaign, contact, salesMember);
-            result.emailsSent++;
-          } catch (error) {
-            console.error(`Email failed for contact ${contact.id}:`, error);
-            result.failures++;
-            result.errors.push({
-              contactId: contact.id,
-              error: error instanceof Error ? error.message : 'Unknown email error',
-              type: 'email'
-            });
-          }
-        }
-
-        // Send SMS if campaign includes SMS
-        if ((campaign.type === 'sms' || campaign.type === 'both') && campaign.smsTemplate) {
-          try {
-            await this.sendSmsToContact(orgId, campaignId, campaign, contact, salesMember);
-            result.smsSent++;
-          } catch (error) {
-            console.error(`SMS failed for contact ${contact.id}:`, error);
-            result.failures++;
-            result.errors.push({
-              contactId: contact.id,
-              error: error instanceof Error ? error.message : 'Unknown SMS error',
-              type: 'sms'
-            });
-          }
-        }
-
-        // Add small delay to avoid rate limits
-        await this.sleep(100);
-      }
-
-      // Update campaign status to completed
-      await this.kvService.updateCampaign(orgId, campaignId, {
+      await this.campaignService.updateCampaign(orgId, campaignId, {
         status: 'completed',
         completedAt: new Date().toISOString()
       });
 
-      // Update campaign analytics
       await this.updateCampaignAnalytics(orgId, campaignId, result);
-
       result.success = true;
-      console.log(`Campaign ${campaignId} completed:`, result);
 
     } catch (error) {
-      console.error(`Campaign ${campaignId} failed:`, error);
-      
-      // Mark campaign as failed
-      await this.kvService.updateCampaign(orgId, campaignId, {
+      await this.campaignService.updateCampaign(orgId, campaignId, {
         status: 'failed',
         failedAt: new Date().toISOString(),
         errorMessage: error instanceof Error ? error.message : 'Unknown error'
@@ -173,47 +114,72 @@ export class CampaignSender {
     return result;
   }
 
-  private async getSpecificContacts(orgId: string, contactIds: string[]) {
-    // Get specific contacts by their IDs
-    const allContacts = await this.kvService.listContacts(orgId);
-    const specificContacts: any[] = [];
-    const seenContactIds = new Set<string>();
-
-    // Filter contacts that match the specified IDs
-    for (const contact of allContacts) {
-      if (!contact || !contactIds.includes(contact.id)) continue;
+  private async sendMessagesToContacts(
+    orgId: string,
+    campaignId: string,
+    campaign: any,
+    contacts: any[],
+    salesTeamMembers: any[],
+    result: SendCampaignResult
+  ) {
+    // Process contacts in batches to avoid overwhelming the system
+    const BATCH_SIZE = 10;
+    
+    for (let i = 0; i < contacts.length; i += BATCH_SIZE) {
+      const batch = contacts.slice(i, i + BATCH_SIZE);
       
-      if (!seenContactIds.has(contact.id)) {
-        specificContacts.push(contact);
-        seenContactIds.add(contact.id);
-      }
+      const batchPromises = batch.map(async (contact, contactIndex) => {
+        const globalIndex = i + contactIndex;
+        
+        if (contact.optedOut) {
+          return; // Skip opted-out contacts
+        }
+
+        // Get sales team member for this contact
+        let salesMember = null;
+        if (campaign.campaignType === 'sales' && salesTeamMembers.length > 0) {
+          if (campaign.salesSettings?.useRoundRobin) {
+            salesMember = await this.salesTeamService.getRoundRobinMember(orgId);
+          } else {
+            salesMember = salesTeamMembers[globalIndex % salesTeamMembers.length];
+          }
+        }
+
+        // Send email if needed
+        if ((campaign.type === 'email' || campaign.type === 'both') && campaign.emailTemplate) {
+          try {
+            await this.sendEmailToContact(orgId, campaignId, campaign, contact, salesMember);
+            result.emailsSent++;
+          } catch (error) {
+            result.failures++;
+            result.errors.push({
+              contactId: contact.id,
+              error: error instanceof Error ? error.message : 'Unknown email error',
+              type: 'email'
+            });
+          }
+        }
+
+        // Send SMS if needed
+        if ((campaign.type === 'sms' || campaign.type === 'both') && campaign.smsTemplate) {
+          try {
+            await this.sendSmsToContact(orgId, campaignId, campaign, contact, salesMember);
+            result.smsSent++;
+          } catch (error) {
+            result.failures++;
+            result.errors.push({
+              contactId: contact.id,
+              error: error instanceof Error ? error.message : 'Unknown SMS error',
+              type: 'sms'
+            });
+          }
+        }
+      });
+
+      // Process batch and add small delay
+      await Promise.all(batchPromises);
+      await this.sleep(200); // Small delay between batches
     }
-
-    return specificContacts;
-  }
-
-  private async getAllCampaignContacts(orgId: string, contactListIds: string[]) {
-    // Get all contacts for the organization
-    const allContacts = await this.kvService.listContacts(orgId);
-    const campaignContacts: any[] = [];
-    const seenContactIds = new Set<string>();
-
-    // Filter contacts that belong to the selected lists
-    for (const contact of allContacts) {
-      if (!contact || !contact.contactListIds) continue;
-
-      // Check if this contact belongs to any of the campaign's lists
-      const belongsToSelectedLists = contact.contactListIds.some((listId: string) => 
-        contactListIds.includes(listId)
-      );
-
-      if (belongsToSelectedLists && !seenContactIds.has(contact.id)) {
-        campaignContacts.push(contact);
-        seenContactIds.add(contact.id);
-      }
-    }
-
-    return campaignContacts;
   }
 
   private async sendEmailToContact(orgId: string, campaignId: string, campaign: any, contact: any, salesMember?: any) {
@@ -221,25 +187,21 @@ export class CampaignSender {
       throw new Error('Email template or contact email missing');
     }
 
-    // Replace variables in email content (including sales team variables)
     const subject = this.messagingService.replaceVariables(campaign.emailTemplate.subject, contact, campaign, salesMember);
     let htmlBody = this.messagingService.replaceVariables(campaign.emailTemplate.htmlBody, contact, campaign, salesMember);
     
-    // Add unsubscribe link
     const unsubscribeUrl = this.messagingService.generateUnsubscribeUrl(orgId, contact.id, campaignId);
     htmlBody = htmlBody.replace(/\{unsubscribeUrl\}/g, unsubscribeUrl);
     htmlBody = htmlBody.replace(/\{\{unsubscribeUrl\}\}/g, unsubscribeUrl);
     
-    // Add unsubscribe footer if not already present
     if (!htmlBody.includes('unsubscribe') && !htmlBody.includes('opt-out')) {
       htmlBody += `<br><br><p style="font-size: 12px; color: #666;"><a href="${unsubscribeUrl}">Unsubscribe</a> from these emails.</p>`;
     }
 
-    // Use sales member email for "from" if this is a sales campaign
     const fromEmail = salesMember ? salesMember.email : campaign.emailTemplate.fromEmail;
     const fromName = salesMember ? `${salesMember.firstName} ${salesMember.lastName}` : campaign.emailTemplate.fromName;
 
-    const result = await this.messagingService.sendEmail({
+    const messageResult = await this.messagingService.sendEmail({
       to: contact.email,
       from: fromEmail,
       subject,
@@ -249,18 +211,17 @@ export class CampaignSender {
       orgId
     });
 
-    if (!result.success) {
-      throw new Error(result.error || 'Email sending failed');
+    if (!messageResult.success) {
+      throw new Error(messageResult.error || 'Email sending failed');
     }
 
-    // Track delivery
-    await this.kvService.trackDelivery(orgId, campaignId, contact.id, {
+    await this.campaignService.trackDelivery(orgId, campaignId, contact.id, {
       type: 'email',
       status: 'sent',
-      messageId: result.messageId,
+      messageId: messageResult.messageId,
       toAddress: contact.email,
       sentAt: new Date().toISOString(),
-      salesMemberId: salesMember?.id // Track which sales member sent it
+      salesMemberId: salesMember?.id
     });
   }
 
@@ -269,18 +230,14 @@ export class CampaignSender {
       throw new Error('SMS template or contact phone missing');
     }
 
-    // Replace variables in SMS content (including sales team variables)
     const message = this.messagingService.replaceVariables(campaign.smsTemplate.message, contact, campaign, salesMember);
-    
-    // Format phone number
     const formattedPhone = formatPhoneNumber(contact.phone);
     
-    // Use sales member phone for "from" if available, otherwise use campaign's from number or default
     const fromNumber = (salesMember && salesMember.phone) 
       ? formatPhoneNumber(salesMember.phone)
       : campaign.smsTemplate.fromNumber || process.env.DEFAULT_SMS_NUMBER || '+1234567890';
 
-    const result = await this.messagingService.sendSMS({
+    const messageResult = await this.messagingService.sendSMS({
       to: formattedPhone,
       from: fromNumber,
       message,
@@ -289,18 +246,17 @@ export class CampaignSender {
       orgId
     });
 
-    if (!result.success) {
-      throw new Error(result.error || 'SMS sending failed');
+    if (!messageResult.success) {
+      throw new Error(messageResult.error || 'SMS sending failed');
     }
 
-    // Track delivery
-    await this.kvService.trackDelivery(orgId, campaignId, contact.id, {
+    await this.campaignService.trackDelivery(orgId, campaignId, contact.id, {
       type: 'sms',
       status: 'sent',
-      messageId: result.messageId,
+      messageId: messageResult.messageId,
       toAddress: formattedPhone,
       sentAt: new Date().toISOString(),
-      salesMemberId: salesMember?.id // Track which sales member sent it
+      salesMemberId: salesMember?.id
     });
   }
 
@@ -308,9 +264,9 @@ export class CampaignSender {
     const analytics = {
       totalContacts: result.totalContacts,
       totalSent: result.emailsSent + result.smsSent,
-      totalDelivered: result.emailsSent + result.smsSent, // Will be updated by webhooks
+      totalDelivered: result.emailsSent + result.smsSent,
       totalFailed: result.failures,
-      totalOptedOut: 0, // Will be updated by webhooks
+      totalOptedOut: 0,
       
       emailStats: result.emailsSent > 0 ? {
         sent: result.emailsSent,
@@ -326,14 +282,18 @@ export class CampaignSender {
         sent: result.smsSent,
         delivered: result.smsSent,
         failed: result.errors.filter(e => e.type === 'sms').length,
-        deliveryRate: 100 // Will be updated by webhooks
+        deliveryRate: 100
       } : undefined
     };
 
-    await this.kvService.updateCampaignAnalytics(orgId, campaignId, analytics);
+    await this.campaignService.updateCampaignAnalytics(orgId, campaignId, analytics);
   }
 
   private sleep(ms: number): Promise<void> {
     return new Promise(resolve => setTimeout(resolve, ms));
   }
+}
+
+export function getCampaignSenderService(context: any): CampaignSenderService {
+  return new CampaignSenderService(context);
 }

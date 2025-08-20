@@ -4,8 +4,9 @@ import { useLoaderData, useActionData, Form, useNavigate } from "@remix-run/reac
 import type { LoaderFunctionArgs, ActionFunctionArgs } from "@remix-run/cloudflare";
 import { getAuth } from "@clerk/remix/ssr.server";
 import { redirect, json } from "@remix-run/cloudflare";
-import { getKVService } from "~/lib/kv.server";
-import { getSalesTeamService } from "~/lib/sales-team.server";
+import { getCampaignService } from "~/lib/services/campaign.server";
+import { getContactListService } from "~/lib/services/contactlist.server";
+import { getSalesTeamService } from "~/lib/services/salesteam.server";
 import { generateId } from "~/lib/utils";
 
 export async function loader(args: LoaderFunctionArgs) {
@@ -16,42 +17,30 @@ export async function loader(args: LoaderFunctionArgs) {
   }
 
   try {
-    const kvService = getKVService(args.context);
-    const contactLists = await kvService.listContactLists(orgId);
+    const contactListService = getContactListService(args.context);
+    const salesTeamService = getSalesTeamService(args.context);
     
-    // Get all contacts to count how many belong to each list
-    const allContacts = await kvService.listContacts(orgId);
-    
-    // Add contact count to each list
-    const listsWithCounts = contactLists.map((list: any) => ({
-      ...list,
-      contactCount: allContacts ? allContacts.filter(contact => 
-        contact && (contact as any).contactListIds && (contact as any).contactListIds.includes(list.id)
-      ).length : 0
-    }));
-
-    // Get organization settings for default signature
-    const orgSettings = await kvService.getOrgSettings(orgId);
+    // Get contact lists with counts
+    const contactLists = await contactListService.listContactLists(orgId);
     
     // Get sales team for signature selection
-    const salesTeamService = getSalesTeamService(args.context);
     const salesTeam = await salesTeamService.getAllMembers(orgId);
     const activeMembers = salesTeam.filter(member => member.isActive);
     
-    return { 
+    return json({ 
       orgId, 
-      contactLists: listsWithCounts || [],
-      defaultSignature: orgSettings.emailSignature || {},
+      contactLists: contactLists || [],
+      defaultSignature: {},
       salesTeam: activeMembers
-    };
+    });
   } catch (error) {
     console.log("Error loading contact lists:", error);
-    return { 
+    return json({ 
       orgId, 
       contactLists: [],
       defaultSignature: {},
       salesTeam: []
-    };
+    });
   }
 }
 
@@ -65,7 +54,7 @@ export async function action(args: ActionFunctionArgs) {
 
   try {
     const formData = await request.formData();
-    const kvService = getKVService(args.context);
+    const campaignService = getCampaignService(args.context);
     
     const campaignData = {
       name: formData.get("name") as string,
@@ -126,7 +115,7 @@ export async function action(args: ActionFunctionArgs) {
     }
 
     const campaignId = generateId();
-    await kvService.createCampaign(orgId, campaignId, campaignData);
+    await campaignService.createCampaign(orgId, campaignId, campaignData);
 
     return redirect(`/dashboard/campaigns/${campaignId}`);
     

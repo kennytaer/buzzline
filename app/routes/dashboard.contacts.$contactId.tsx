@@ -3,6 +3,8 @@ import { useLoaderData, useActionData, Form, useNavigate } from "@remix-run/reac
 import type { LoaderFunctionArgs, ActionFunctionArgs } from "@remix-run/cloudflare";
 import { getAuth } from "@clerk/remix/ssr.server";
 import { redirect, json } from "@remix-run/cloudflare";
+import { getContactService } from "~/lib/services/contact.server";
+import { getContactListService } from "~/lib/services/contactlist.server";
 import { getKVService } from "~/lib/kv.server";
 import { formatDate, isValidEmail, isValidPhone } from "~/lib/utils";
 
@@ -19,16 +21,22 @@ export async function loader(args: LoaderFunctionArgs) {
   }
 
   try {
-    const kvService = getKVService(args.context);
+    const contactService = getContactService(args.context);
+    const contactListService = getContactListService(args.context);
+    const kvService = getKVService(args.context); // For custom fields
     
     // Get the contact
-    const contact = await kvService.getContact(orgId, contactId);
+    const contact = await contactService.getContact(orgId, contactId);
     if (!contact) {
       throw new Response("Contact not found", { status: 404 });
     }
 
     // Get all contact lists for this organization to show which lists this contact belongs to
-    const contactLists = await kvService.listContactLists(orgId);
+    const [contactLists, customFields] = await Promise.all([
+      contactListService.listContactLists(orgId),
+      kvService.getCustomFields(orgId)
+    ]);
+    
     const contactListsForContact = contactLists.filter((list: any) => 
       contact.contactListIds && contact.contactListIds.includes(list.id)
     );
@@ -36,6 +44,7 @@ export async function loader(args: LoaderFunctionArgs) {
     return json({ 
       contact,
       contactLists: contactListsForContact,
+      customFields,
       orgId 
     });
   } catch (error) {
@@ -61,8 +70,9 @@ export async function action(args: ActionFunctionArgs) {
   const actionType = formData.get("actionType") as string;
 
   try {
-    const kvService = getKVService(args.context);
-    const contact = await kvService.getContact(orgId, contactId);
+    const contactService = getContactService(args.context);
+    const kvService = getKVService(args.context); // For custom fields
+    const contact = await contactService.getContact(orgId, contactId);
     
     if (!contact) {
       throw new Response("Contact not found", { status: 404 });
@@ -88,10 +98,26 @@ export async function action(args: ActionFunctionArgs) {
       const customFieldsData = formData.get("customFields") as string;
       if (customFieldsData) {
         const customFields = JSON.parse(customFieldsData);
+        
+        // Get existing org custom fields
+        const existingOrgFields = await kvService.getCustomFields(orgId);
+        const newFields = [];
+        
         for (const [key, value] of Object.entries(customFields)) {
           if (value) {
             metadata[key] = value;
+            metadata[`${key}_display_name`] = key.replace(/_/g, ' ');
+            
+            // Track new fields that need to be saved to the org
+            if (!existingOrgFields.includes(key)) {
+              newFields.push(key);
+            }
           }
+        }
+        
+        // Save new custom fields to the organization
+        if (newFields.length > 0) {
+          await kvService.saveCustomFields(orgId, [...existingOrgFields, ...newFields]);
         }
       }
 
@@ -103,16 +129,16 @@ export async function action(args: ActionFunctionArgs) {
         metadata
       };
 
-      await kvService.updateContact(orgId, contactId, updates);
+      await contactService.updateContact(orgId, contactId, updates);
       return json({ success: "Contact updated successfully" });
       
     } else if (actionType === "toggleOptOut") {
       const newOptOutStatus = !contact.optedOut;
-      await kvService.updateContactOptOut(orgId, contactId, newOptOutStatus);
+      await contactService.updateContactOptOut(orgId, contactId, newOptOutStatus);
       return json({ success: `Contact ${newOptOutStatus ? 'opted out' : 'reactivated'} successfully` });
       
     } else if (actionType === "delete") {
-      const success = await kvService.deleteContact(orgId, contactId);
+      const success = await contactService.deleteContact(orgId, contactId);
       if (success) {
         // Redirect to contacts list after successful deletion
         return redirect("/dashboard/contacts");
@@ -131,25 +157,49 @@ export async function action(args: ActionFunctionArgs) {
 }
 
 export default function ContactView() {
-  const { contact, contactLists } = useLoaderData<typeof loader>();
+  const { contact, contactLists, customFields: availableCustomFields } = useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>();
   const navigate = useNavigate();
   const [isEditing, setIsEditing] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [customFields, setCustomFields] = useState(() => {
     const fields: Record<string, string> = {};
+    
+    // Include all available custom fields from organization
+    availableCustomFields.forEach((fieldName: string) => {
+      fields[fieldName] = contact.metadata?.[fieldName] || '';
+    });
+    
+    // Also include any custom fields that exist on this contact but aren't in the org list
     if (contact.metadata) {
       Object.keys(contact.metadata)
         .filter(key => !key.endsWith('_display_name'))
         .forEach(key => {
-          fields[key] = contact.metadata[key] || '';
+          if (!availableCustomFields.includes(key)) {
+            fields[key] = contact.metadata[key] || '';
+          }
         });
     }
+    
     return fields;
   });
+  
+  const [newFieldName, setNewFieldName] = useState('');
+  const [showAddField, setShowAddField] = useState(false);
 
   const getCustomFieldDisplayName = (key: string) => {
     return contact.metadata?.[`${key}_display_name`] || key.replace(/_/g, ' ');
+  };
+
+  const handleAddCustomField = () => {
+    if (newFieldName && !customFields[newFieldName]) {
+      setCustomFields(prev => ({
+        ...prev,
+        [newFieldName]: ''
+      }));
+      setNewFieldName('');
+      setShowAddField(false);
+    }
   };
 
   return (
@@ -320,9 +370,58 @@ export default function ContactView() {
                 </div>
 
                 {/* Custom Fields */}
-                {Object.keys(customFields).length > 0 && (
-                  <div className="sm:col-span-2">
-                    <h4 className="text-sm font-medium text-gray-700 mb-4">Custom Fields</h4>
+                <div className="sm:col-span-2">
+                  <div className="flex items-center justify-between mb-4">
+                    <h4 className="text-sm font-medium text-gray-700">Custom Fields</h4>
+                    <button
+                      type="button"
+                      onClick={() => setShowAddField(true)}
+                      className="inline-flex items-center px-3 py-1 border border-gray-300 shadow-sm text-xs font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50"
+                    >
+                      <svg className="-ml-0.5 mr-1 h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+                      </svg>
+                      Add Field
+                    </button>
+                  </div>
+                  
+                  {/* Add New Field Form */}
+                  {showAddField && (
+                    <div className="mb-4 p-3 border border-blue-200 rounded-md bg-blue-50">
+                      <div className="flex items-center space-x-3">
+                        <div className="flex-1">
+                          <input
+                            type="text"
+                            placeholder="Field name (e.g., Department, Role)"
+                            value={newFieldName}
+                            onChange={(e) => setNewFieldName(e.target.value)}
+                            className="block w-full border-gray-300 rounded-md shadow-sm focus:ring-primary-500 focus:border-primary-500 sm:text-sm"
+                          />
+                        </div>
+                        <button
+                          type="button"
+                          onClick={handleAddCustomField}
+                          disabled={!newFieldName}
+                          className="inline-flex items-center px-3 py-2 border border-transparent text-sm leading-4 font-medium rounded-md text-white bg-primary-600 hover:bg-primary-700 disabled:bg-gray-300"
+                        >
+                          Add
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setShowAddField(false);
+                            setNewFieldName('');
+                          }}
+                          className="inline-flex items-center px-3 py-2 border border-gray-300 text-sm leading-4 font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50"
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                  
+                  {/* Existing Custom Fields */}
+                  {Object.keys(customFields).length > 0 ? (
                     <div className="grid grid-cols-1 gap-y-4 gap-x-4 sm:grid-cols-2">
                       {Object.keys(customFields).map((key) => (
                         <div key={key}>
@@ -343,8 +442,10 @@ export default function ContactView() {
                         </div>
                       ))}
                     </div>
-                  </div>
-                )}
+                  ) : (
+                    <p className="text-sm text-gray-500 italic">No custom fields yet. Click "Add Field" to create one.</p>
+                  )}
+                </div>
               </div>
 
               <input type="hidden" name="customFields" value={JSON.stringify(customFields)} />

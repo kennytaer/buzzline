@@ -2,9 +2,10 @@ import { useLoaderData, useActionData, Form } from "@remix-run/react";
 import type { LoaderFunctionArgs, ActionFunctionArgs } from "@remix-run/cloudflare";
 import { getAuth } from "@clerk/remix/ssr.server";
 import { redirect, json } from "@remix-run/cloudflare";
-import { getKVService } from "~/lib/kv.server";
+import { getCampaignService } from "~/lib/services/campaign.server";
+import { getContactListService } from "~/lib/services/contactlist.server";
 import { formatDate } from "~/lib/utils";
-import { CampaignSender } from "~/lib/campaign-sender.server";
+import { getCampaignSenderService } from "~/lib/services/campaign-sender.server";
 
 export async function loader(args: LoaderFunctionArgs) {
   const { userId, orgId } = await getAuth(args);
@@ -15,17 +16,21 @@ export async function loader(args: LoaderFunctionArgs) {
   }
 
   try {
-    const kvService = getKVService(args.context);
-    const campaign = await kvService.getCampaign(orgId, campaignId);
+    const campaignService = getCampaignService(args.context);
+    const contactListService = getContactListService(args.context);
+    
+    const campaign = await campaignService.getCampaign(orgId, campaignId);
     
     if (!campaign) {
       throw new Error("Campaign not found");
     }
 
-    const contactLists = await kvService.listContactLists(orgId);
-    const analytics = await kvService.getCampaignAnalytics(orgId, campaignId);
+    const [contactLists, analytics] = await Promise.all([
+      contactListService.listContactLists(orgId),
+      campaignService.getCampaignAnalytics(orgId, campaignId)
+    ]);
     
-    return { 
+    return json({ 
       campaign, 
       contactLists: contactLists || [],
       analytics: analytics || {
@@ -35,7 +40,7 @@ export async function loader(args: LoaderFunctionArgs) {
         emailStats: { sent: 0, delivered: 0, opened: 0, clicked: 0, openRate: 0, clickRate: 0 },
         smsStats: { sent: 0, delivered: 0, failed: 0, deliveryRate: 0 }
       }
-    };
+    });
   } catch (error) {
     console.log("Error loading campaign:", error);
     return redirect("/dashboard/campaigns");
@@ -54,11 +59,10 @@ export async function action(args: ActionFunctionArgs) {
   try {
     const formData = await request.formData();
     const action = formData.get("_action") as string;
-    const kvService = getKVService(args.context);
 
     if (action === "send") {
       try {
-        const campaignSender = new CampaignSender(args.context);
+        const campaignSender = getCampaignSenderService(args.context);
         const result = await campaignSender.sendCampaign(orgId, campaignId);
         
         if (result.success) {

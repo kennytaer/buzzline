@@ -1,6 +1,7 @@
 import type { ActionFunctionArgs } from "@remix-run/cloudflare";
 import { json } from "@remix-run/cloudflare";
-import { getKVService } from "~/lib/kv.server";
+import { getContactService } from "~/lib/services/contact.server";
+import { getKVService } from "~/lib/kv.server"; // TODO: Remove once webhook logging is migrated
 
 // Twilio webhook for SMS status updates and responses
 export async function action(args: ActionFunctionArgs) {
@@ -30,7 +31,8 @@ export async function action(args: ActionFunctionArgs) {
       errorMessage
     });
 
-    const kvService = getKVService(args.context);
+    const contactService = getContactService(args.context);
+  const kvService = getKVService(args.context); // TODO: Remove once webhook logging is migrated
     
     // Handle incoming SMS responses (like STOP messages)
     if (body_text && from && to) {
@@ -44,7 +46,7 @@ export async function action(args: ActionFunctionArgs) {
         console.log(`Opt-out detected from ${from}: ${body_text}`);
         
         // Find contact by phone number and mark as opted out
-        await handleOptOut(kvService, from, 'sms');
+        await handleOptOut(contactService, kvService, from, 'sms');
         
         // Log the opt-out event
         await logWebhookEvent(kvService, {
@@ -83,21 +85,21 @@ export async function action(args: ActionFunctionArgs) {
 }
 
 // Handle opt-out by finding contact and updating their status
-async function handleOptOut(kvService: any, phone: string, channel: 'sms' | 'email') {
+async function handleOptOut(contactService: any, kvService: any, phone: string, channel: 'sms' | 'email') {
   try {
     // Search across all organizations for this contact
     // This is a simplified approach - in production you might want to optimize this
     const allOrgs = await getAllOrganizations(kvService);
     
     for (const orgId of allOrgs) {
-      const contacts = await kvService.listContacts(orgId);
+      const contacts = await contactService.listContacts(orgId);
       
       for (const contact of contacts) {
         if (contact.phone === phone || contact.email === phone) {
           console.log(`Found contact ${contact.id} in org ${orgId}, marking as opted out`);
           
           // Update contact opt-out status
-          await kvService.updateContactOptOut(orgId, contact.id, true);
+          await contactService.updateContactOptOut(orgId, contact.id, true);
           
           // Log the opt-out in analytics
           await kvService.setCache(`optout:${channel}:${contact.id}`, {

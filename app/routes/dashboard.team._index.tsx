@@ -47,7 +47,7 @@ export default function TeamIndex() {
 
   // Search is now handled server-side for better performance
   const handleSearch = (searchValue: string) => {
-    const url = new URL(window.location);
+    const url = new URL(window.location.href);
     if (searchValue) {
       url.searchParams.set('search', searchValue);
     } else {
@@ -194,7 +194,7 @@ export default function TeamIndex() {
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-accent-200">
-                {members.map((member) => (
+                {members.map((member: any) => (
                   <tr key={member.id} className="hover:bg-accent-50">
                     <td className="px-6 py-4 whitespace-nowrap">
                       <div className="flex items-center">
