@@ -6,7 +6,7 @@ import { useState, useEffect } from "react";
 import { getContactService } from "~/lib/services/contact.server";
 import { getContactListService } from "~/lib/services/contactlist.server";
 import { getCampaignService } from "~/lib/services/campaign.server";
-import { getCampaignSenderService } from "~/lib/services/campaign-sender.server";
+import { CampaignSender } from "~/lib/campaign-sender.server";
 
 export async function loader(args: LoaderFunctionArgs) {
   const { userId, orgId } = await getAuth(args);
@@ -83,7 +83,7 @@ export async function action(args: ActionFunctionArgs) {
     try {
       const contactService = getContactService(args.context);
       const campaignService = getCampaignService(args.context);
-      const campaignSender = getCampaignSenderService(args.context);
+      const campaignSender = new CampaignSender(args.context);
       
       // Verify campaign and contact exist
       const [campaign, contact] = await Promise.all([
@@ -118,8 +118,8 @@ export async function action(args: ActionFunctionArgs) {
       await campaignService.updateCampaign(orgId, campaignId.toString(), individualCampaign);
       
       try {
-        // Send the campaign
-        const result = await campaignSender.sendCampaign(orgId, campaignId.toString());
+        // Send the campaign with individual send flag
+        const result = await campaignSender.sendCampaign(orgId, campaignId.toString(), true);
         
         // Restore original campaign
         await campaignService.updateCampaign(orgId, campaignId.toString(), originalData);

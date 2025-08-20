@@ -5,7 +5,7 @@ import { redirect, json } from "@remix-run/cloudflare";
 import { getCampaignService } from "~/lib/services/campaign.server";
 import { getContactListService } from "~/lib/services/contactlist.server";
 import { formatDate } from "~/lib/utils";
-import { getCampaignSenderService } from "~/lib/services/campaign-sender.server";
+import { CampaignSender } from "~/lib/campaign-sender.server";
 
 export async function loader(args: LoaderFunctionArgs) {
   const { userId, orgId } = await getAuth(args);
@@ -62,7 +62,7 @@ export async function action(args: ActionFunctionArgs) {
 
     if (action === "send") {
       try {
-        const campaignSender = getCampaignSenderService(args.context);
+        const campaignSender = new CampaignSender(args.context);
         const result = await campaignSender.sendCampaign(orgId, campaignId);
         
         if (result.success) {

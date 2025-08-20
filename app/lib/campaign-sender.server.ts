@@ -23,11 +23,11 @@ export class CampaignSender {
 
   constructor(context: any) {
     this.kvService = getKVService(context);
-    this.messagingService = new MessagingService();
+    this.messagingService = new MessagingService(context);
     this.salesTeamService = getSalesTeamService(context);
   }
 
-  async sendCampaign(orgId: string, campaignId: string): Promise<SendCampaignResult> {
+  async sendCampaign(orgId: string, campaignId: string, isIndividualSend = false): Promise<SendCampaignResult> {
     const result: SendCampaignResult = {
       success: false,
       totalContacts: 0,
@@ -43,6 +43,11 @@ export class CampaignSender {
       if (!campaign) {
         throw new Error('Campaign not found');
       }
+
+      // Get organization settings for default from addresses
+      const orgSettings = await this.kvService.getOrgSettings(orgId);
+      const defaultFromEmail = orgSettings?.companyInfo?.fromEmail;
+      const defaultFromPhone = orgSettings?.companyInfo?.fromPhoneNumber;
 
       // Get contacts based on targeting mode
       let allContacts: any[] = [];
@@ -65,11 +70,13 @@ export class CampaignSender {
 
       console.log(`Starting campaign ${campaignId}: ${campaign.type} to ${allContacts.length} contacts`);
 
-      // Update campaign status
-      await this.kvService.updateCampaign(orgId, campaignId, {
-        status: 'sending',
-        sentAt: new Date().toISOString()
-      });
+      // Update campaign status only if this is not an individual send
+      if (!isIndividualSend) {
+        await this.kvService.updateCampaign(orgId, campaignId, {
+          status: 'sending',
+          sentAt: new Date().toISOString()
+        });
+      }
 
       // Get sales team members for sales campaigns
       let salesTeamMembers: any[] = [];
@@ -114,7 +121,7 @@ export class CampaignSender {
         // Send email if campaign includes email
         if ((campaign.type === 'email' || campaign.type === 'both') && campaign.emailTemplate) {
           try {
-            await this.sendEmailToContact(orgId, campaignId, campaign, contact, salesMember);
+            await this.sendEmailToContact(orgId, campaignId, campaign, contact, salesMember, defaultFromEmail);
             result.emailsSent++;
           } catch (error) {
             console.error(`Email failed for contact ${contact.id}:`, error);
@@ -130,7 +137,7 @@ export class CampaignSender {
         // Send SMS if campaign includes SMS
         if ((campaign.type === 'sms' || campaign.type === 'both') && campaign.smsTemplate) {
           try {
-            await this.sendSmsToContact(orgId, campaignId, campaign, contact, salesMember);
+            await this.sendSmsToContact(orgId, campaignId, campaign, contact, salesMember, defaultFromPhone);
             result.smsSent++;
           } catch (error) {
             console.error(`SMS failed for contact ${contact.id}:`, error);
@@ -147,14 +154,16 @@ export class CampaignSender {
         await this.sleep(100);
       }
 
-      // Update campaign status to completed
-      await this.kvService.updateCampaign(orgId, campaignId, {
-        status: 'completed',
-        completedAt: new Date().toISOString()
-      });
+      // Update campaign status to completed only if this is not an individual send
+      if (!isIndividualSend) {
+        await this.kvService.updateCampaign(orgId, campaignId, {
+          status: 'completed',
+          completedAt: new Date().toISOString()
+        });
 
-      // Update campaign analytics
-      await this.updateCampaignAnalytics(orgId, campaignId, result);
+        // Update campaign analytics only for bulk sends
+        await this.updateCampaignAnalytics(orgId, campaignId, result);
+      }
 
       result.success = true;
       console.log(`Campaign ${campaignId} completed:`, result);
@@ -162,12 +171,14 @@ export class CampaignSender {
     } catch (error) {
       console.error(`Campaign ${campaignId} failed:`, error);
       
-      // Mark campaign as failed
-      await this.kvService.updateCampaign(orgId, campaignId, {
-        status: 'failed',
-        failedAt: new Date().toISOString(),
-        errorMessage: error instanceof Error ? error.message : 'Unknown error'
-      });
+      // Mark campaign as failed only if this is not an individual send
+      if (!isIndividualSend) {
+        await this.kvService.updateCampaign(orgId, campaignId, {
+          status: 'failed',
+          failedAt: new Date().toISOString(),
+          errorMessage: error instanceof Error ? error.message : 'Unknown error'
+        });
+      }
     }
 
     return result;
@@ -216,7 +227,7 @@ export class CampaignSender {
     return campaignContacts;
   }
 
-  private async sendEmailToContact(orgId: string, campaignId: string, campaign: any, contact: any, salesMember?: any) {
+  private async sendEmailToContact(orgId: string, campaignId: string, campaign: any, contact: any, salesMember?: any, defaultFromEmail?: string) {
     if (!campaign.emailTemplate || !contact.email) {
       throw new Error('Email template or contact email missing');
     }
@@ -235,8 +246,8 @@ export class CampaignSender {
       htmlBody += `<br><br><p style="font-size: 12px; color: #666;"><a href="${unsubscribeUrl}">Unsubscribe</a> from these emails.</p>`;
     }
 
-    // Use sales member email for "from" if this is a sales campaign
-    const fromEmail = salesMember ? salesMember.email : campaign.emailTemplate.fromEmail;
+    // Use sales member email for "from" if this is a sales campaign, otherwise use organization default or campaign template
+    const fromEmail = salesMember ? salesMember.email : (defaultFromEmail || campaign.emailTemplate.fromEmail);
     const fromName = salesMember ? `${salesMember.firstName} ${salesMember.lastName}` : campaign.emailTemplate.fromName;
 
     const result = await this.messagingService.sendEmail({
@@ -264,7 +275,7 @@ export class CampaignSender {
     });
   }
 
-  private async sendSmsToContact(orgId: string, campaignId: string, campaign: any, contact: any, salesMember?: any) {
+  private async sendSmsToContact(orgId: string, campaignId: string, campaign: any, contact: any, salesMember?: any, defaultFromPhone?: string) {
     if (!campaign.smsTemplate || !contact.phone) {
       throw new Error('SMS template or contact phone missing');
     }
@@ -275,10 +286,10 @@ export class CampaignSender {
     // Format phone number
     const formattedPhone = formatPhoneNumber(contact.phone);
     
-    // Use sales member phone for "from" if available, otherwise use campaign's from number or default
+    // Use sales member phone for "from" if available, otherwise use organization default or campaign template
     const fromNumber = (salesMember && salesMember.phone) 
       ? formatPhoneNumber(salesMember.phone)
-      : campaign.smsTemplate.fromNumber || process.env.DEFAULT_SMS_NUMBER || '+1234567890';
+      : formatPhoneNumber(defaultFromPhone || campaign.smsTemplate.fromNumber || process.env.DEFAULT_SMS_NUMBER || '+1234567890');
 
     const result = await this.messagingService.sendSMS({
       to: formattedPhone,

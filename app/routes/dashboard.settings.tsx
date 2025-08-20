@@ -85,7 +85,9 @@ export async function loader(args: LoaderFunctionArgs) {
         companyInfo: {
           name: '',
           website: '',
-          address: ''
+          address: '',
+          fromEmail: '',
+          fromPhoneNumber: ''
         }
       },
       salesTeam: []
@@ -147,6 +149,8 @@ export async function action(args: ActionFunctionArgs) {
         name: formData.get("companyName") as string,
         website: formData.get("companyWebsite") as string,
         address: formData.get("companyAddress") as string,
+        fromEmail: formData.get("fromEmail") as string,
+        fromPhoneNumber: formData.get("fromPhoneNumber") as string,
       };
 
       await kvService.updateOrgSettings(orgId, { companyInfo });
@@ -506,6 +510,42 @@ export default function OrganizationSettings() {
                   className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-primary-500 focus:border-primary-500 px-3 py-2"
                   placeholder="123 Main St, City, State 12345"
                 />
+              </div>
+
+              <div className="grid grid-cols-1 gap-6 sm:grid-cols-2">
+                <div>
+                  <label htmlFor="fromEmail" className="block text-sm font-medium text-gray-700">
+                    Default From Email Address
+                  </label>
+                  <input
+                    type="email"
+                    name="fromEmail"
+                    id="fromEmail"
+                    defaultValue={settings.companyInfo?.fromEmail || ''}
+                    className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-primary-500 focus:border-primary-500 px-3 py-2"
+                    placeholder="campaigns@yourcompany.com"
+                  />
+                  <p className="mt-1 text-xs text-gray-500">
+                    This email address will be used as the sender for all email campaigns.
+                  </p>
+                </div>
+
+                <div>
+                  <label htmlFor="fromPhoneNumber" className="block text-sm font-medium text-gray-700">
+                    Default From Phone Number
+                  </label>
+                  <input
+                    type="tel"
+                    name="fromPhoneNumber"
+                    id="fromPhoneNumber"
+                    defaultValue={settings.companyInfo?.fromPhoneNumber || ''}
+                    className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-primary-500 focus:border-primary-500 px-3 py-2"
+                    placeholder="+15551234567"
+                  />
+                  <p className="mt-1 text-xs text-gray-500">
+                    This phone number will be used as the sender for all SMS campaigns. Must include country code (+1).
+                  </p>
+                </div>
               </div>
 
               <div className="flex justify-end">

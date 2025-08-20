@@ -19,7 +19,7 @@ export async function loader(args: LoaderFunctionArgs) {
   const limit = parseInt(url.searchParams.get("limit") || "20");
   const search = url.searchParams.get("search") || "";
 
-  const salesTeamService = getSalesTeamService();
+  const salesTeamService = getSalesTeamService(args.context);
   
   // Use new paginated method for fast loading
   const membersData = await salesTeamService.getMembersPaginated(orgId, page, limit, search || undefined);

@@ -32,11 +32,23 @@ export class MessagingService {
   private twilioAccountSid: string;
   private twilioAuthToken: string;
 
-  constructor() {
-    this.smsEndpoint = process.env.SMS_ENDPOINT || '';
-    this.emailEndpoint = process.env.EMAILING_ENDPOINT || '';
-    this.twilioAccountSid = process.env.TWILIO_ACCOUNT_SID || '';
-    this.twilioAuthToken = process.env.TWILIO_AUTH_TOKEN || '';
+  constructor(context?: any) {
+    // Use context.env for Cloudflare environment variables, fallback to process.env
+    const env = context?.env || process.env;
+    this.smsEndpoint = env.SMS_ENDPOINT || '';
+    this.emailEndpoint = env.EMAILING_ENDPOINT || '';
+    this.twilioAccountSid = env.TWILIO_ACCOUNT_SID || '';
+    this.twilioAuthToken = env.TWILIO_AUTH_TOKEN || '';
+    
+    // Debug logging
+    console.log('MessagingService env check:', {
+      hasContext: !!context,
+      hasContextEnv: !!context?.env,
+      smsEndpoint: this.smsEndpoint,
+      emailEndpoint: this.emailEndpoint,
+      processEnvSMS: process.env.SMS_ENDPOINT,
+      processEnvEmail: process.env.EMAILING_ENDPOINT
+    });
   }
 
   async sendSMS(message: SMSMessage): Promise<MessageResult> {
@@ -49,19 +61,16 @@ export class MessagingService {
     }
 
     try {
-      const response = await fetch(this.smsEndpoint, {
+      const response = await fetch(`https://${this.smsEndpoint}`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          'x-api-key': 'benchmetrics-3dc3c222-64ab-4d44-abd5-84f648e1d8af'
         },
         body: JSON.stringify({
           from: message.from, // SMS phone number
           to: message.to,
-          message: message.message,
-          // Include metadata in message for tracking via webhook
-          campaignId: message.campaignId,
-          contactId: message.contactId,
-          orgId: message.orgId,
+          text: message.message,
         }),
       });
 
@@ -102,16 +111,17 @@ export class MessagingService {
     }
 
     try {
-      const response = await fetch(this.emailEndpoint, {
+      const response = await fetch(`https://${this.emailEndpoint}`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          'x-api-key': 'google-sheet-for-leads-5d6811e4-6ba7-4822-919f-f3103c50f9d0'
         },
         body: JSON.stringify({
           from: message.from, // Email address
           to: message.to, // Customer email address  
           subject: message.subject,
-          htmlBody: message.htmlBody,
+          html: message.htmlBody,
         }),
       });
 

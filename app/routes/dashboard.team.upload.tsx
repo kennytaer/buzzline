@@ -56,7 +56,7 @@ export async function action(args: ActionFunctionArgs) {
       );
     }
 
-    const salesTeamService = getSalesTeamService();
+    const salesTeamService = getSalesTeamService(args.context);
     await salesTeamService.importMembers(orgId, members);
 
     return redirect(`/dashboard/team?imported=${members.length}`);

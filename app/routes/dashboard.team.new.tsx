@@ -31,7 +31,7 @@ export async function action(args: ActionFunctionArgs) {
   }
 
   try {
-    const salesTeamService = getSalesTeamService();
+    const salesTeamService = getSalesTeamService(args.context);
     await salesTeamService.createMember(orgId, {
       firstName,
       lastName,
