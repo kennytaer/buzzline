@@ -153,7 +153,7 @@ export default function SegmentsIndex() {
                             </a>
                             {segment.type === 'dynamic' && (
                               <a
-                                href={`/dashboard/contacts/segments/${segment.id}/edit`}
+                                href={`/dashboard/contacts/segments/new?editMode=true&segmentId=${segment.id}&segmentName=${encodeURIComponent(segment.name || '')}&segmentDescription=${encodeURIComponent(segment.description || '')}&filters=${encodeURIComponent(JSON.stringify(segment.filters || []))}`}
                                 className="text-blue-600 hover:text-blue-900"
                               >
                                 Edit
