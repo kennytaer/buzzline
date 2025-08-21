@@ -41,13 +41,13 @@ export class MessagingService {
     this.twilioAuthToken = env.TWILIO_AUTH_TOKEN || '';
     
     // Debug logging
-    console.log('MessagingService env check:', {
+    console.log('MessagingService initialization:', {
       hasContext: !!context,
       hasContextEnv: !!context?.env,
-      smsEndpoint: this.smsEndpoint,
-      emailEndpoint: this.emailEndpoint,
-      processEnvSMS: process.env.SMS_ENDPOINT,
-      processEnvEmail: process.env.EMAILING_ENDPOINT
+      smsEndpoint: this.smsEndpoint ? 'SET' : 'NOT SET',
+      emailEndpoint: this.emailEndpoint ? 'SET' : 'NOT SET',
+      processEnvSMS: process.env.SMS_ENDPOINT ? 'SET' : 'NOT SET',
+      processEnvEmail: process.env.EMAILING_ENDPOINT ? 'SET' : 'NOT SET'
     });
   }
 
@@ -61,6 +61,13 @@ export class MessagingService {
     }
 
     try {
+      console.log('SMS API call:', {
+        endpoint: `https://${this.smsEndpoint}`,
+        from: message.from,
+        to: message.to,
+        messageLength: message.message.length
+      });
+
       const response = await fetch(`https://${this.smsEndpoint}`, {
         method: 'POST',
         headers: {
@@ -74,8 +81,15 @@ export class MessagingService {
         }),
       });
 
+      console.log('SMS API response:', {
+        status: response.status,
+        statusText: response.statusText,
+        ok: response.ok
+      });
+
       if (!response.ok) {
         const errorData = await response.text();
+        console.error('SMS API error:', errorData);
         return {
           success: false,
           error: `SMS API error: ${response.status} ${errorData}`,
@@ -84,10 +98,14 @@ export class MessagingService {
       }
 
       const result = await response.json() as any;
+      console.log('SMS API result:', result);
+      
+      const messageId = result.sid || result.messageId || result.id;
+      console.log('SMS extracted messageId:', messageId);
       
       return {
         success: true,
-        messageId: result.sid || result.messageId || result.id,
+        messageId,
         provider: 'sms'
       };
 
@@ -111,6 +129,14 @@ export class MessagingService {
     }
 
     try {
+      console.log('Email API call:', {
+        endpoint: `https://${this.emailEndpoint}`,
+        from: message.from,
+        to: message.to,
+        subject: message.subject,
+        htmlBodyLength: message.htmlBody.length
+      });
+
       const response = await fetch(`https://${this.emailEndpoint}`, {
         method: 'POST',
         headers: {
@@ -125,8 +151,15 @@ export class MessagingService {
         }),
       });
 
+      console.log('Email API response:', {
+        status: response.status,
+        statusText: response.statusText,
+        ok: response.ok
+      });
+
       if (!response.ok) {
         const errorData = await response.text();
+        console.error('Email API error:', errorData);
         return {
           success: false,
           error: `Email API error: ${response.status} ${errorData}`,
@@ -135,10 +168,14 @@ export class MessagingService {
       }
 
       const result = await response.json() as any;
+      console.log('Email API result:', result);
+      
+      const messageId = result.id || result.messageId || result.message?.id;
+      console.log('Email extracted messageId:', messageId);
       
       return {
         success: true,
-        messageId: result.id || result.messageId || result.message?.id,
+        messageId,
         provider: 'email'
       };
 
