@@ -141,10 +141,30 @@ export async function action(args: ActionFunctionArgs) {
       return json({ error: "SMS message is required for SMS campaigns" }, { status: 400 });
     }
 
-    const campaignId = generateId();
-    await campaignService.createCampaign(orgId, campaignId, campaignData);
+    // Check if this is an edit operation
+    const editMode = formData.get("editMode") === "true";
+    const editCampaignId = formData.get("editCampaignId") as string;
 
-    return redirect(`/dashboard/campaigns/${campaignId}`);
+    if (editMode && editCampaignId) {
+      // Update existing campaign
+      const existingCampaign = await campaignService.getCampaign(orgId, editCampaignId);
+      if (!existingCampaign || existingCampaign.status !== 'draft') {
+        return json({ error: "Campaign cannot be edited" }, { status: 400 });
+      }
+      
+      await campaignService.updateCampaign(orgId, editCampaignId, {
+        ...campaignData,
+        updatedAt: new Date().toISOString()
+      });
+      
+      return redirect(`/dashboard/campaigns/${editCampaignId}`);
+    } else {
+      // Create new campaign
+      const campaignId = generateId();
+      await campaignService.createCampaign(orgId, campaignId, campaignData);
+
+      return redirect(`/dashboard/campaigns/${campaignId}`);
+    }
     
   } catch (error) {
     console.error("Campaign creation error:", error);
@@ -155,13 +175,25 @@ export async function action(args: ActionFunctionArgs) {
 export default function NewCampaign() {
   const { contactLists, defaultSignature, salesTeam } = useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>();
-  const [campaignType, setCampaignType] = useState<"email" | "sms" | "both">("email");
-  const [campaignMode, setCampaignMode] = useState<"sales" | "company">("company");
-  const [selectedLists, setSelectedLists] = useState<string[]>([]);
-  const [emailContent, setEmailContent] = useState("");
-  const [emailHtmlCode, setEmailHtmlCode] = useState("");
+  
+  // Check if we're in edit mode by reading URL parameters
+  const [searchParams] = new URLSearchParams(typeof window !== 'undefined' ? window.location.search : '');
+  const isEditMode = searchParams.get('editMode') === 'true';
+  const editCampaignId = searchParams.get('campaignId');
+  
+  const [campaignType, setCampaignType] = useState<"email" | "sms" | "both">(
+    (searchParams.get('type') as "email" | "sms" | "both") || "email"
+  );
+  const [campaignMode, setCampaignMode] = useState<"sales" | "company">(
+    (searchParams.get('campaignMode') as "sales" | "company") || "company"
+  );
+  const [selectedLists, setSelectedLists] = useState<string[]>(
+    searchParams.get('contactLists')?.split(',').filter(Boolean) || []
+  );
+  const [emailContent, setEmailContent] = useState(searchParams.get('emailBody') || "");
+  const [emailHtmlCode, setEmailHtmlCode] = useState(searchParams.get('emailBody') || "");
   const [emailEditorMode, setEmailEditorMode] = useState<"visual" | "html">("visual");
-  const [smsMessage, setSmsMessage] = useState("");
+  const [smsMessage, setSmsMessage] = useState(searchParams.get('smsMessage') || "");
   const [smsSegments, setSmsSegments] = useState(1);
   const [selectedTeamMember, setSelectedTeamMember] = useState<string>("");
 
@@ -228,10 +260,10 @@ export default function NewCampaign() {
         <div className="md:flex md:items-center md:justify-between mb-8">
           <div className="min-w-0 flex-1">
             <h1 className="text-2xl font-bold leading-7 text-accent-900 sm:truncate">
-              Create New Campaign
+              {isEditMode ? 'Edit Campaign' : 'Create New Campaign'}
             </h1>
             <p className="mt-1 text-sm text-accent-600">
-              Design and send unified SMS and email marketing campaigns
+              {isEditMode ? 'Update your campaign settings and content' : 'Design and send unified SMS and email marketing campaigns'}
             </p>
           </div>
         </div>
@@ -243,6 +275,13 @@ export default function NewCampaign() {
         )}
 
         <Form method="post" className="space-y-8">
+          {/* Hidden fields for edit mode */}
+          {isEditMode && (
+            <>
+              <input type="hidden" name="editMode" value="true" />
+              <input type="hidden" name="editCampaignId" value={editCampaignId || ''} />
+            </>
+          )}
           {/* Basic Information */}
           <div className="bg-white shadow rounded-lg p-6">
             <h2 className="text-lg font-medium mb-6">Campaign Details</h2>
@@ -255,6 +294,7 @@ export default function NewCampaign() {
                   type="text"
                   name="name"
                   required
+                  defaultValue={searchParams.get('name') || ''}
                   className="block w-full rounded-md border-accent-300 shadow-sm focus:border-primary-500 focus:ring-primary-500 px-3 py-2"
                   placeholder="e.g., Welcome Series, Monthly Newsletter"
                 />
@@ -267,6 +307,7 @@ export default function NewCampaign() {
                 <textarea
                   name="description"
                   rows={3}
+                  defaultValue={searchParams.get('description') || ''}
                   className="block w-full rounded-md border-accent-300 shadow-sm focus:border-primary-500 focus:ring-primary-500"
                   placeholder="Brief description of this campaign"
                 />
@@ -416,7 +457,7 @@ export default function NewCampaign() {
                       type="checkbox"
                       name="contactLists"
                       value={list.id}
-                      checked={selectedLists.includes(list.id)}
+                      defaultChecked={selectedLists.includes(list.id)}
                       onChange={(e) => {
                         if (e.target.checked) {
                           setSelectedLists(prev => [...prev, list.id]);
@@ -453,6 +494,7 @@ export default function NewCampaign() {
                       <input
                         type="text"
                         name="fromName"
+                        defaultValue={searchParams.get('fromName') || ''}
                         className="block w-full rounded-md border-accent-300 shadow-sm focus:border-primary-500 focus:ring-primary-500"
                         placeholder="Your Business Name"
                       />
@@ -466,6 +508,7 @@ export default function NewCampaign() {
                         type="email"
                         name="fromEmail"
                         required={campaignMode === "company" && (campaignType === "email" || campaignType === "both")}
+                        defaultValue={searchParams.get('fromEmail') || ''}
                         className="block w-full rounded-md border-accent-300 shadow-sm focus:border-primary-500 focus:ring-primary-500"
                         placeholder="hello@yourcompany.com"
                       />
@@ -489,6 +532,7 @@ export default function NewCampaign() {
                     type="text"
                     name="emailSubject"
                     required={campaignType === "email" || campaignType === "both"}
+                    defaultValue={searchParams.get('emailSubject') || ''}
                     className="block w-full rounded-md border-accent-300 shadow-sm focus:border-primary-500 focus:ring-primary-500"
                     placeholder="Welcome to our newsletter!"
                   />
@@ -898,7 +942,7 @@ export default function NewCampaign() {
               disabled={contactLists.length === 0 || selectedLists.length === 0}
               className="px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-primary-500 hover:bg-primary-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary-500 disabled:bg-gray-400 disabled:cursor-not-allowed"
             >
-              Create Campaign
+              {isEditMode ? 'Update Campaign' : 'Create Campaign'}
             </button>
           </div>
         </Form>
