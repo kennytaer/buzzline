@@ -33,26 +33,17 @@ export class MessagingService {
   private twilioAuthToken: string;
 
   constructor(context?: any) {
-    // Try multiple access patterns for Cloudflare environment variables
-    const env = context?.cloudflare?.env || context?.env || process.env;
+    // Use context.cloudflare.env for Cloudflare environment variables (confirmed working)
+    const env = context?.cloudflare?.env || process.env;
     this.smsEndpoint = env.SMS_ENDPOINT || '';
     this.emailEndpoint = env.EMAILING_ENDPOINT || '';
     this.twilioAccountSid = env.TWILIO_ACCOUNT_SID || '';
     this.twilioAuthToken = env.TWILIO_AUTH_TOKEN || '';
     
-    // Enhanced debug logging
-    console.log('🔧 MessagingService constructor called:', {
-      hasContext: !!context,
-      hasContextEnv: !!context?.env,
-      hasCloudflare: !!context?.cloudflare,
-      hasCloudflareEnv: !!context?.cloudflare?.env,
-      contextEnvKeys: context?.env ? Object.keys(context.env) : 'No context.env',
-      cloudflareEnvKeys: context?.cloudflare?.env ? Object.keys(context.cloudflare.env) : 'No cloudflare.env',
-      whichEnvUsed: context?.cloudflare?.env ? 'cloudflare.env' : context?.env ? 'context.env' : 'process.env',
-      envSmsEndpoint: env.SMS_ENDPOINT,
-      envEmailEndpoint: env.EMAILING_ENDPOINT,
-      finalSmsEndpoint: this.smsEndpoint,
-      finalEmailEndpoint: this.emailEndpoint
+    // Debug logging (can be removed once everything works)
+    console.log('🔧 MessagingService initialized:', {
+      smsEndpoint: this.smsEndpoint ? 'SET' : 'NOT SET',
+      emailEndpoint: this.emailEndpoint ? 'SET' : 'NOT SET'
     });
   }
 
@@ -76,7 +67,7 @@ export class MessagingService {
         messageLength: message.message.length
       });
 
-      const response = await fetch(`https://${this.smsEndpoint}`, {
+      const response = await fetch(`https://${this.smsEndpoint}/textMessage`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -200,7 +191,7 @@ export class MessagingService {
     }
   }
 
-  // Template variable replacement
+  // Template variable replacement (without signature handling)
   replaceVariables(template: string, contact: any, campaign?: any, salesMember?: any): string {
     let result = template;
     
@@ -253,6 +244,13 @@ export class MessagingService {
         }
       });
     }
+    
+    return result;
+  }
+
+  // Template variable replacement WITH signature handling (only for email bodies)
+  replaceVariablesWithSignature(template: string, contact: any, campaign?: any, salesMember?: any): string {
+    let result = this.replaceVariables(template, contact, campaign, salesMember);
     
     // Signature handling - always append signature automatically
     if (campaign?.emailTemplate?.signature || salesMember) {

@@ -238,7 +238,7 @@ export class CampaignSender {
 
     // Replace variables in email content (including sales team variables)
     const subject = this.messagingService.replaceVariables(campaign.emailTemplate.subject, contact, campaign, salesMember);
-    let htmlBody = this.messagingService.replaceVariables(campaign.emailTemplate.htmlBody, contact, campaign, salesMember);
+    let htmlBody = this.messagingService.replaceVariablesWithSignature(campaign.emailTemplate.htmlBody, contact, campaign, salesMember);
     
     // Add unsubscribe link
     const unsubscribeUrl = this.messagingService.generateUnsubscribeUrl(orgId, contact.id, campaignId);
