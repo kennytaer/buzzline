@@ -1,21 +1,30 @@
-# Copy this to wrangler.toml and fill in your account details
+# Configuration for both local development and Pages
 name = "buzzline"
-account_id = "YOUR_ACCOUNT_ID_HERE"
 compatibility_date = "2024-10-15"
 compatibility_flags = ["nodejs_compat"]
+pages_build_output_dir = "./build/client"
 
-# KV Namespaces for development
+# Environment Variables
+[vars]
+CLERK_PUBLISHABLE_KEY = "pk_test_ZGVlcC1tb3NxdWl0by02MC5jbGVyay5hY2NvdW50cy5kZXYk"
+CLERK_SECRET_KEY = "sk_test_4Cj9U7ewdXZjElwfNxa39rMFzuUVrND4HeNLWSdaVP"
+TWILIO_ACCOUNT_SID = "AC47a352bf4dc3265e74e1bb481fb8a845"
+TWILIO_AUTH_TOKEN = "ffdb404cded3ada739ac80d555ddc086"
+EMAILING_ENDPOINT = "bm-emailing-middleware.benchmetrics.workers.dev"
+SMS_ENDPOINT = "bm-benchmetrics-sms-service.benchmetrics.workers.dev"
+
+# KV Namespaces
 [[kv_namespaces]]
 binding = "BUZZLINE_MAIN"
-id = "YOUR_MAIN_KV_ID_HERE"
-preview_id = "YOUR_MAIN_KV_PREVIEW_ID_HERE"
+id = "365db24eb7d647acb6e3fc39d38acd25"
+preview_id = "fa6543997a044e459690a1798bff62be"
 
 [[kv_namespaces]]
 binding = "BUZZLINE_ANALYTICS"
-id = "YOUR_ANALYTICS_KV_ID_HERE"
-preview_id = "YOUR_ANALYTICS_KV_PREVIEW_ID_HERE"
+id = "45f26618ca3042ee8c90df3ac3b5ff2b"
+preview_id = "0c5d091149a74d4bbac8941b678a6caa"
 
 [[kv_namespaces]]
 binding = "BUZZLINE_CACHE"
-id = "YOUR_CACHE_KV_ID_HERE"
-preview_id = "YOUR_CACHE_KV_PREVIEW_ID_HERE"
+id = "951b33a733c446378409d0825256c060"
+preview_id = "9082b80ad91d4e5f9b2da6a086871817"

@@ -100,12 +100,14 @@ export async function action(args: ActionFunctionArgs) {
 
     // Create segment
     const segmentId = generateId();
+    const matchingContactIds = matchingContacts.map(contact => contact.id);
     await contactListService.createContactList(orgId, segmentId, {
       name: segmentName,
       description: segmentDescription,
       filters,
       type: 'dynamic', // Mark as dynamic segment vs static upload
-      contactCount: matchingContacts.length
+      contactCount: matchingContacts.length,
+      contactIds: matchingContactIds
     });
 
     // Update all matching contacts to include this segment
