@@ -101,6 +101,15 @@ export async function action(args: ActionFunctionArgs) {
     // Create segment
     const segmentId = generateId();
     const matchingContactIds = matchingContacts.map(contact => contact.id);
+    
+    console.log("DEBUG: Creating segment", {
+      segmentId,
+      segmentName,
+      matchingContacts: matchingContacts.length,
+      matchingContactIds,
+      filters
+    });
+    
     await contactListService.createContactList(orgId, segmentId, {
       name: segmentName,
       description: segmentDescription,
