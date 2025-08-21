@@ -128,7 +128,10 @@ export async function action(args: ActionFunctionArgs) {
       uploadFormData.append('files', file);
 
       const uploadResult = await serverUploadFile(uploadFormData, args.context);
-      return json({ success: "File uploaded successfully", url: uploadResult.url });
+      console.log('Action upload result:', uploadResult);
+      const response = { success: "File uploaded successfully", url: uploadResult.url };
+      console.log('Action returning:', response);
+      return json(response);
     }
 
     if (actionType === "updateSignature") {
