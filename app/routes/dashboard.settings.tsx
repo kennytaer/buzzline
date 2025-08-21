@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { useLoaderData, useActionData, Form, useSearchParams } from "@remix-run/react";
+import { useLoaderData, useActionData, Form, useSearchParams, useFetcher } from "@remix-run/react";
 import type { LoaderFunctionArgs, ActionFunctionArgs } from "@remix-run/cloudflare";
 import { getAuth } from "@clerk/remix/ssr.server";
 import { redirect, json } from "@remix-run/cloudflare";
@@ -172,6 +172,7 @@ export default function OrganizationSettings() {
   const { settings } = useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>();
   const [searchParams, setSearchParams] = useSearchParams();
+  const uploadFetcher = useFetcher();
   
   // Get tab from URL parameters
   const urlTab = searchParams.get('tab') as "signature" | "company" | null;
@@ -189,8 +190,8 @@ export default function OrganizationSettings() {
     setSearchParams({ tab });
   };
 
-  // Handle file upload
-  const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+  // Handle file upload using Remix fetcher
+  const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
 
@@ -206,39 +207,36 @@ export default function OrganizationSettings() {
       return;
     }
 
-    setIsUploading(true);
-    try {
-      const formData = new FormData();
-      formData.append('actionType', 'uploadFile');
-      formData.append('file', file);
+    const formData = new FormData();
+    formData.append('actionType', 'uploadFile');
+    formData.append('file', file);
 
-      const response = await fetch('/dashboard/settings', {
-        method: 'POST',
-        body: formData,
-      });
+    uploadFetcher.submit(formData, {
+      method: 'POST',
+      encType: 'multipart/form-data'
+    });
+  };
 
-      const result = await response.json() as any;
+  // Handle upload response
+  useEffect(() => {
+    if (uploadFetcher.state === 'idle' && uploadFetcher.data) {
+      setIsUploading(false);
       
-      if (result.error) {
-        throw new Error(result.error);
-      }
-
-      if (result.url) {
-        setLogoUrl(result.url);
+      if ('error' in uploadFetcher.data) {
+        alert('Failed to upload file: ' + uploadFetcher.data.error);
+      } else if ('url' in uploadFetcher.data) {
+        setLogoUrl(uploadFetcher.data.url);
         
         // Update the input field
         const input = document.getElementById('companyLogoUrl') as HTMLInputElement;
         if (input) {
-          input.value = result.url;
+          input.value = uploadFetcher.data.url;
         }
       }
-    } catch (error) {
-      console.error('Upload error:', error);
-      alert('Failed to upload file. Please try again.');
-    } finally {
-      setIsUploading(false);
+    } else if (uploadFetcher.state === 'submitting') {
+      setIsUploading(true);
     }
-  };
+  }, [uploadFetcher.state, uploadFetcher.data]);
 
   return (
     <div className="space-y-6">

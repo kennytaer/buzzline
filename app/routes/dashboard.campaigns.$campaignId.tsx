@@ -118,6 +118,48 @@ export default function CampaignDetail() {
       }, 0);
   };
 
+  const getEditUrl = () => {
+    const searchParams = new URLSearchParams({
+      editMode: 'true',
+      campaignId: campaign.id,
+      name: campaign.name || '',
+      description: campaign.description || '',
+      type: campaign.type || 'email',
+      campaignMode: campaign.campaignType || 'standard',
+      contactLists: (campaign.contactListIds || []).join(','),
+      
+      // Email template data
+      ...(campaign.emailTemplate && {
+        emailSubject: campaign.emailTemplate.subject || '',
+        emailBody: campaign.emailTemplate.htmlBody || '',
+        fromName: campaign.emailTemplate.fromName || '',
+        fromEmail: campaign.emailTemplate.fromEmail || '',
+        salesPersonName: campaign.emailTemplate.signature?.salesPersonName || '',
+        salesPersonTitle: campaign.emailTemplate.signature?.salesPersonTitle || '',
+        companyLogoUrl: campaign.emailTemplate.signature?.companyLogoUrl || '',
+      }),
+      
+      // SMS template data
+      ...(campaign.smsTemplate && {
+        smsMessage: campaign.smsTemplate.message || '',
+        fromNumber: campaign.smsTemplate.fromNumber || '',
+      }),
+      
+      // Sales settings
+      ...(campaign.salesSettings && {
+        salesMode: campaign.salesSettings.useRoundRobin ? 'round-robin' : 'specific',
+        selectedSalesMembers: (campaign.salesSettings.selectedMemberIds || []).join(','),
+      }),
+      
+      // Settings
+      trackOpens: campaign.settings?.trackOpens ? 'true' : 'false',
+      trackClicks: campaign.settings?.trackClicks ? 'true' : 'false',
+      unsubscribeLink: campaign.settings?.unsubscribeLink ? 'true' : 'false',
+    });
+    
+    return `/dashboard/campaigns/new?${searchParams.toString()}`;
+  };
+
   return (
     <div className="px-4 py-6 sm:px-0">
       <div className="max-w-6xl mx-auto">
@@ -340,7 +382,7 @@ export default function CampaignDetail() {
                 <h3 className="text-lg font-medium mb-4">Actions</h3>
                 <div className="space-y-2">
                   <a
-                    href={`/dashboard/campaigns/${campaign.id}/edit`}
+                    href={getEditUrl()}
                     className="w-full inline-flex justify-center items-center px-4 py-2 border border-gray-300 shadow-sm text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50"
                   >
                     Edit Campaign
