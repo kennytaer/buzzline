@@ -8,7 +8,7 @@ import { formatDate } from "~/lib/utils";
 
 // Server-side file upload handler
 async function serverUploadFile(formData: FormData, context: any): Promise<{ url: string; id: string }> {
-  const apiKey = context.env?.BENCHMETRICS_API_KEY;
+  const apiKey = context.cloudflare?.env?.BENCHMETRICS_API_KEY || context.env?.BENCHMETRICS_API_KEY;
   if (!apiKey) {
     throw new Error('BENCHMETRICS_API_KEY not configured');
   }
