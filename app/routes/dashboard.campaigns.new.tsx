@@ -24,6 +24,8 @@ export async function loader(args: LoaderFunctionArgs) {
     // Get contact lists 
     const rawContactLists = await contactListService.listContactLists(orgId);
     
+    console.log("DEBUG: Campaign loader - Raw contact lists:", rawContactLists.length, rawContactLists);
+    
     // Get contact service to count contacts per list
     const contactService = getContactService(args.context);
     
