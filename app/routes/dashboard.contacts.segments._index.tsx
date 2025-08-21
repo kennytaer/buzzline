@@ -94,6 +94,9 @@ export default function SegmentsIndex() {
                         Name
                       </th>
                       <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wide">
+                        Type
+                      </th>
+                      <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wide">
                         Description
                       </th>
                       <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wide">
@@ -118,6 +121,17 @@ export default function SegmentsIndex() {
                             {segment.name}
                           </a>
                         </td>
+                        <td className="whitespace-nowrap px-6 py-4 text-sm text-gray-500">
+                          {segment.type === 'dynamic' ? (
+                            <span className="inline-flex rounded-full bg-blue-100 px-2 text-xs font-semibold leading-5 text-blue-800">
+                              Dynamic
+                            </span>
+                          ) : (
+                            <span className="inline-flex rounded-full bg-gray-100 px-2 text-xs font-semibold leading-5 text-gray-800">
+                              Static
+                            </span>
+                          )}
+                        </td>
                         <td className="px-6 py-4 text-sm text-gray-500">
                           <div className="max-w-xs truncate">
                             {segment.description || 'No description'}
@@ -130,12 +144,22 @@ export default function SegmentsIndex() {
                           {new Date(segment.createdAt).toLocaleDateString()}
                         </td>
                         <td className="relative whitespace-nowrap py-4 pl-3 pr-4 text-right text-sm font-medium sm:pr-6">
-                          <a
-                            href={`/dashboard/contacts/segments/${segment.id}`}
-                            className="text-primary-600 hover:text-primary-900"
-                          >
-                            View
-                          </a>
+                          <div className="flex justify-end space-x-2">
+                            <a
+                              href={`/dashboard/contacts/segments/${segment.id}`}
+                              className="text-primary-600 hover:text-primary-900"
+                            >
+                              View
+                            </a>
+                            {segment.type === 'dynamic' && (
+                              <a
+                                href={`/dashboard/contacts/segments/${segment.id}/edit`}
+                                className="text-blue-600 hover:text-blue-900"
+                              >
+                                Edit
+                              </a>
+                            )}
+                          </div>
                         </td>
                       </tr>
                     ))}

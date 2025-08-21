@@ -4,6 +4,7 @@ import { createPagesFunctionHandler } from "@remix-run/cloudflare-pages";
 import * as build from "../build/server";
 
 export const onRequest = createPagesFunctionHandler({
+  // @ts-ignore - build compatibility issue with crossOrigin types
   build,
   getLoadContext(context) {
     // Make Cloudflare bindings available to your loaders and actions

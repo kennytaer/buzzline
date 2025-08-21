@@ -118,6 +118,118 @@ export class ContactListService {
     }
     return existingFields;
   }
+
+  // Segment logic update functionality
+  async refreshSegmentLogic(orgId: string, segmentId: string, allContacts: any[]) {
+    const segment = await this.getContactList(orgId, segmentId);
+    if (!segment || segment.type !== 'dynamic' || !segment.filters) {
+      return null; // Only refresh dynamic segments with filters
+    }
+
+    // Re-evaluate segment filters against all contacts
+    const matchingContacts = allContacts.filter(contact => {
+      return this.evaluateSegmentFilters(contact, segment.filters);
+    });
+
+    const matchingContactIds = matchingContacts.map(c => c.id);
+    
+    // Update segment with new contact list
+    const updatedSegment = await this.updateContactList(orgId, segmentId, {
+      contactIds: matchingContactIds,
+      contactCount: matchingContacts.length,
+      lastRefreshed: new Date().toISOString()
+    });
+
+    return {
+      segmentId,
+      previousCount: segment.contactIds?.length || 0,
+      newCount: matchingContacts.length,
+      addedContacts: matchingContactIds.filter(id => !segment.contactIds?.includes(id)),
+      removedContacts: segment.contactIds?.filter((id: string) => !matchingContactIds.includes(id)) || []
+    };
+  }
+
+  async refreshAllDynamicSegments(orgId: string, allContacts: any[]) {
+    const allSegments = await this.listContactLists(orgId);
+    const dynamicSegments = allSegments.filter(s => s.type === 'dynamic' && s.filters);
+    
+    const results = [];
+    for (const segment of dynamicSegments) {
+      const result = await this.refreshSegmentLogic(orgId, segment.id, allContacts);
+      if (result) results.push(result);
+    }
+    
+    return results;
+  }
+
+  // Filter evaluation logic (moved from new segment route)
+  private evaluateSegmentFilters(contact: any, filters: any[]): boolean {
+    if (!filters || filters.length === 0) return true;
+    
+    let result = this.evaluateRule(contact, filters[0]);
+    
+    for (let i = 1; i < filters.length; i++) {
+      const rule = filters[i];
+      const ruleResult = this.evaluateRule(contact, rule);
+      
+      if (rule.logic === 'OR') {
+        result = result || ruleResult;
+      } else { // AND (default)
+        result = result && ruleResult;
+      }
+    }
+    
+    return result;
+  }
+
+  private evaluateRule(contact: any, rule: any): boolean {
+    let contactValue: any;
+    
+    // Get the value from contact
+    if (['firstName', 'lastName', 'email', 'phone'].includes(rule.field)) {
+      contactValue = contact[rule.field] || '';
+    } else if (rule.field === 'optedOut') {
+      contactValue = contact.optedOut ? 'true' : 'false';
+    } else {
+      // Custom metadata field
+      contactValue = contact.metadata?.[rule.field] || '';
+    }
+    
+    const filterValue = rule.value;
+    
+    // Convert to strings for comparison
+    const contactStr = String(contactValue).toLowerCase();
+    const filterStr = String(filterValue).toLowerCase();
+    
+    switch (rule.operator) {
+      case 'equals':
+        return contactStr === filterStr;
+      case 'not_equals':
+        return contactStr !== filterStr;
+      case 'contains':
+        return contactStr.includes(filterStr);
+      case 'not_contains':
+        return !contactStr.includes(filterStr);
+      case 'starts_with':
+        return contactStr.startsWith(filterStr);
+      case 'ends_with':
+        return contactStr.endsWith(filterStr);
+      case 'greater_than':
+        return parseFloat(contactValue) > parseFloat(filterValue);
+      case 'less_than':
+        return parseFloat(contactValue) < parseFloat(filterValue);
+      case 'greater_equal':
+        return parseFloat(contactValue) >= parseFloat(filterValue);
+      case 'less_equal':
+        return parseFloat(contactValue) <= parseFloat(filterValue);
+      case 'is_empty':
+        return !contactValue || contactValue === '';
+      case 'is_not_empty':
+        return contactValue && contactValue !== '';
+      default:
+        return false;
+    }
+  }
 }
 
 export function getContactListService(context: any): ContactListService {

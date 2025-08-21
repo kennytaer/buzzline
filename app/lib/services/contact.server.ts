@@ -131,6 +131,10 @@ export class ContactService {
       const key = this.getContactKey(orgId, contactId);
       await this.main.put(key, JSON.stringify(updated));
       await this.updateContactIndexes(orgId, contactId, updated);
+      
+      // Auto-refresh dynamic segments when contact is updated
+      await this.triggerSegmentRefresh(orgId);
+      
       return updated;
     } catch (error) {
       console.error(`Error updating contact ${contactId} for org ${orgId}:`, error);
@@ -609,6 +613,22 @@ export class ContactService {
       }
     }
     await this.cache.delete(metaKey);
+  }
+
+  // Trigger dynamic segment refresh when contacts are updated
+  private async triggerSegmentRefresh(orgId: string) {
+    try {
+      // Import here to avoid circular dependency
+      const { getContactListService } = await import('./contactlist.server');
+      const contactListService = getContactListService({ cloudflare: { env: { BUZZLINE_MAIN: this.main } } });
+      
+      // Get all contacts and refresh all dynamic segments
+      const allContacts = await this.listAllContacts(orgId);
+      await contactListService.refreshAllDynamicSegments(orgId, allContacts);
+    } catch (error) {
+      console.warn('Failed to auto-refresh segments:', error);
+      // Don't throw error - segment refresh is a nice-to-have feature
+    }
   }
 }
 
