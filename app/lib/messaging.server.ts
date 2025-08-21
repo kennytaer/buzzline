@@ -33,8 +33,8 @@ export class MessagingService {
   private twilioAuthToken: string;
 
   constructor(context?: any) {
-    // Use context.env for Cloudflare environment variables, fallback to process.env
-    const env = context?.env || process.env;
+    // Try multiple access patterns for Cloudflare environment variables
+    const env = context?.cloudflare?.env || context?.env || process.env;
     this.smsEndpoint = env.SMS_ENDPOINT || '';
     this.emailEndpoint = env.EMAILING_ENDPOINT || '';
     this.twilioAccountSid = env.TWILIO_ACCOUNT_SID || '';
@@ -44,13 +44,15 @@ export class MessagingService {
     console.log('🔧 MessagingService constructor called:', {
       hasContext: !!context,
       hasContextEnv: !!context?.env,
+      hasCloudflare: !!context?.cloudflare,
+      hasCloudflareEnv: !!context?.cloudflare?.env,
       contextEnvKeys: context?.env ? Object.keys(context.env) : 'No context.env',
+      cloudflareEnvKeys: context?.cloudflare?.env ? Object.keys(context.cloudflare.env) : 'No cloudflare.env',
+      whichEnvUsed: context?.cloudflare?.env ? 'cloudflare.env' : context?.env ? 'context.env' : 'process.env',
       envSmsEndpoint: env.SMS_ENDPOINT,
       envEmailEndpoint: env.EMAILING_ENDPOINT,
       finalSmsEndpoint: this.smsEndpoint,
-      finalEmailEndpoint: this.emailEndpoint,
-      processEnvSMS: process.env.SMS_ENDPOINT,
-      processEnvEmail: process.env.EMAILING_ENDPOINT
+      finalEmailEndpoint: this.emailEndpoint
     });
   }
 
