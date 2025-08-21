@@ -290,10 +290,8 @@ export class CampaignSender {
     // Format phone number
     const formattedPhone = formatPhoneNumber(contact.phone);
     
-    // Use sales member phone for "from" if available, otherwise use organization default or campaign template
-    const fromNumber = (salesMember && salesMember.phone) 
-      ? formatPhoneNumber(salesMember.phone)
-      : formatPhoneNumber(defaultFromPhone || campaign.smsTemplate.fromNumber || process.env.DEFAULT_SMS_NUMBER || '+1234567890');
+    // Always use organization default phone number for SMS (Twilio requirement)
+    const fromNumber = formatPhoneNumber(defaultFromPhone || campaign.smsTemplate.fromNumber || process.env.DEFAULT_SMS_NUMBER || '+1234567890');
 
     const result = await this.messagingService.sendSMS({
       to: formattedPhone,
