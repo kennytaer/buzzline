@@ -22,12 +22,16 @@ export class CampaignSender {
   private salesTeamService: any;
 
   constructor(context: any) {
+    console.log('🏗️ CampaignSender constructor called');
     this.kvService = getKVService(context);
     this.messagingService = new MessagingService(context);
     this.salesTeamService = getSalesTeamService(context);
+    console.log('✅ CampaignSender constructor completed');
   }
 
   async sendCampaign(orgId: string, campaignId: string, isIndividualSend = false): Promise<SendCampaignResult> {
+    console.log('🚀 sendCampaign called:', { orgId, campaignId, isIndividualSend });
+    
     const result: SendCampaignResult = {
       success: false,
       totalContacts: 0,
