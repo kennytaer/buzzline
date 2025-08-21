@@ -1,8 +1,8 @@
 import { useLoaderData } from "@remix-run/react";
 import type { LoaderFunctionArgs } from "@remix-run/cloudflare";
 import { getAuth } from "@clerk/remix/ssr.server";
-import { redirect } from "@remix-run/cloudflare";
-import { getKVService } from "~/lib/kv.server";
+import { redirect, json } from "@remix-run/cloudflare";
+import { getCampaignService } from "~/lib/services/campaign.server";
 import { formatDate } from "~/lib/utils";
 
 export async function loader(args: LoaderFunctionArgs) {
@@ -13,18 +13,18 @@ export async function loader(args: LoaderFunctionArgs) {
   }
 
   try {
-    const kvService = getKVService(args.context);
-    const campaigns = await kvService.listCampaigns(orgId);
+    const campaignService = getCampaignService(args.context);
+    const campaigns = await campaignService.listCampaigns(orgId);
     
     // Sort campaigns by creation date (newest first)
     const sortedCampaigns = campaigns.sort((a: any, b: any) => 
       new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
     );
 
-    return { orgId, campaigns: sortedCampaigns };
+    return json({ orgId, campaigns: sortedCampaigns });
   } catch (error) {
     console.log("Error loading campaigns:", error);
-    return { orgId, campaigns: [] };
+    return json({ orgId, campaigns: [] });
   }
 }
 

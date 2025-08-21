@@ -74,8 +74,11 @@ export class SalesTeamService {
   }
 
   async getActiveMembers(orgId: string): Promise<SalesTeamMember[]> {
-    const members = await this.getAllMembers(orgId);
-    return members.filter(member => member.isActive);
+    // Use the same pagination method that works, but get all members
+    const result = await this.kv.getSalesTeamPaginated(orgId, 1, 1000); // Get up to 1000 members (should be enough)
+    const members = result.members || [];
+    const activeMembers = members.filter(member => member.isActive);
+    return activeMembers;
   }
 
   async updateMember(orgId: string, id: string, updates: Partial<Omit<SalesTeamMember, 'id' | 'createdAt'>>): Promise<SalesTeamMember | null> {

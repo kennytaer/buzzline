@@ -2,7 +2,8 @@ import { useLoaderData, useActionData, Form, useNavigation } from "@remix-run/re
 import type { LoaderFunctionArgs, ActionFunctionArgs } from "@remix-run/cloudflare";
 import { getAuth } from "@clerk/remix/ssr.server";
 import { redirect, json } from "@remix-run/cloudflare";
-import { getKVService } from "~/lib/kv.server";
+import { getContactService } from "~/lib/services/contact.server";
+import { getKVService } from "~/lib/kv.server"; // TODO: Remove once custom fields are migrated
 import { isValidEmail, isValidPhone, formatPhoneNumber } from "~/lib/utils";
 
 export async function loader(args: LoaderFunctionArgs) {
@@ -63,7 +64,8 @@ export async function action(args: ActionFunctionArgs) {
     const kvService = getKVService(args.context);
 
     // Check if contact already exists
-    const existingContact = await kvService.findContactByEmailOrPhone(orgId, email, formattedPhone);
+    const contactService = getContactService(args.context);
+    const existingContact = await contactService.findContactByEmailOrPhone(orgId, email, formattedPhone);
     if (existingContact) {
       return json({ error: "A contact with this email or phone number already exists" }, { status: 400 });
     }
@@ -99,7 +101,7 @@ export async function action(args: ActionFunctionArgs) {
     const contactId = `contact_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
     console.log("CONTACT CREATE - OrgId:", orgId, "ContactId:", contactId, "Key:", `org:${orgId}:contact:${contactId}`);
     
-    await kvService.createContact(orgId, contactId, {
+    await contactService.createContact(orgId, contactId, {
       firstName: firstName.trim(),
       lastName: lastName.trim(),
       email: email || null,

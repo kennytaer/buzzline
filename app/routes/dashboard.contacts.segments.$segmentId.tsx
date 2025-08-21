@@ -1,9 +1,49 @@
-import { useLoaderData } from "@remix-run/react";
-import type { LoaderFunctionArgs } from "@remix-run/cloudflare";
+import { useLoaderData, useActionData, Form } from "@remix-run/react";
+import type { LoaderFunctionArgs, ActionFunctionArgs } from "@remix-run/cloudflare";
 import { getAuth } from "@clerk/remix/ssr.server";
 import { redirect, json } from "@remix-run/cloudflare";
-import { getKVService } from "~/lib/kv.server";
+import { getContactService } from "~/lib/services/contact.server";
+import { getContactListService } from "~/lib/services/contactlist.server";
 import { formatDate, formatDateOnly } from "~/lib/utils";
+
+export async function action(args: ActionFunctionArgs) {
+  const { userId, orgId } = await getAuth(args);
+  
+  if (!userId || !orgId) {
+    return redirect("/dashboard");
+  }
+
+  const { segmentId } = args.params;
+  if (!segmentId) {
+    throw new Response("Segment not found", { status: 404 });
+  }
+
+  const formData = await args.request.formData();
+  const actionType = formData.get("actionType");
+
+  if (actionType === "delete") {
+    try {
+      const contactListService = getContactListService(args.context);
+      
+      // Check if segment exists
+      const segment = await contactListService.getContactList(orgId, segmentId);
+      if (!segment) {
+        return json({ error: "Segment not found" }, { status: 404 });
+      }
+
+      // Delete the segment
+      await contactListService.deleteContactList(orgId, segmentId);
+      
+      // Redirect to segments index
+      return redirect("/dashboard/contacts/segments");
+    } catch (error) {
+      console.error("Error deleting segment:", error);
+      return json({ error: "Failed to delete segment" }, { status: 500 });
+    }
+  }
+
+  return json({ error: "Invalid action" }, { status: 400 });
+}
 
 export async function loader(args: LoaderFunctionArgs) {
   const { userId, orgId } = await getAuth(args);
@@ -18,7 +58,8 @@ export async function loader(args: LoaderFunctionArgs) {
   }
 
   try {
-    const kvService = getKVService(args.context);
+    const contactService = getContactService(args.context);
+    const contactListService = getContactListService(args.context);
     
     // Get URL search params for pagination
     const url = new URL(args.request.url);
@@ -27,18 +68,18 @@ export async function loader(args: LoaderFunctionArgs) {
     const search = url.searchParams.get("search") || "";
     
     // Get the segment
-    const segment = await kvService.getContactList(orgId, segmentId);
+    const segment = await contactListService.getContactList(orgId, segmentId);
     if (!segment) {
       throw new Response("Segment not found", { status: 404 });
     }
 
-    // Get all contacts for this organization
-    const allContacts = await kvService.listContacts(orgId);
+    // Get contacts for this segment directly using the new service
+    const segmentContactIds = segment.contactIds || [];
+    const allContacts = segmentContactIds.length > 0 ? 
+      await contactService.getContactsByIds(orgId, segmentContactIds) : [];
     
-    // Filter contacts that belong to this segment
-    let segmentContacts = allContacts ? allContacts.filter((contact: any) => 
-      contact && contact.contactListIds && contact.contactListIds.includes(segmentId)
-    ) : [];
+    // We already have the segment contacts from the direct query
+    let segmentContacts = allContacts || [];
 
     // Apply search filter if provided
     if (search) {
@@ -87,9 +128,17 @@ export async function loader(args: LoaderFunctionArgs) {
 
 export default function SegmentView() {
   const { segment, contacts, allSegmentContacts, pagination, search } = useLoaderData<typeof loader>();
+  const actionData = useActionData<typeof action>();
 
   return (
     <div className="space-y-6">
+      {/* Error Message */}
+      {actionData && 'error' in actionData && (
+        <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+          <p className="text-red-800">{actionData.error}</p>
+        </div>
+      )}
+
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
@@ -127,6 +176,25 @@ export default function SegmentView() {
             </svg>
             Add More Contacts
           </a>
+          
+          {/* Delete Segment Button */}
+          <Form method="post" style={{ display: 'inline' }}>
+            <input type="hidden" name="actionType" value="delete" />
+            <button
+              type="submit"
+              className="inline-flex items-center px-4 py-2 border border-red-300 shadow-sm text-sm font-medium rounded-md text-red-700 bg-white hover:bg-red-50"
+              onClick={(e) => {
+                if (!confirm(`Are you sure you want to delete the segment "${segment.name}"? This action cannot be undone.`)) {
+                  e.preventDefault();
+                }
+              }}
+            >
+              <svg className="-ml-1 mr-2 h-5 w-5 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+              </svg>
+              Delete Segment
+            </button>
+          </Form>
         </div>
       </div>
 
@@ -237,7 +305,7 @@ export default function SegmentView() {
                     type="text"
                     name="search"
                     defaultValue={search}
-                    className="block w-full pl-10 pr-3 py-2 border border-gray-300 rounded-md leading-5 bg-white placeholder-gray-500 focus:outline-none focus:placeholder-gray-400 focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+                    className="block w-full pl-10 pr-3 py-2 px-4 border border-gray-300 rounded-md leading-5 bg-white placeholder-gray-500 focus:outline-none focus:placeholder-gray-400 focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
                     placeholder="Search contacts..."
                   />
                 </div>

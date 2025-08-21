@@ -3,7 +3,8 @@ import { useLoaderData, useActionData, Form } from "@remix-run/react";
 import type { LoaderFunctionArgs, ActionFunctionArgs } from "@remix-run/cloudflare";
 import { getAuth } from "@clerk/remix/ssr.server";
 import { redirect, json } from "@remix-run/cloudflare";
-import { getKVService } from "~/lib/kv.server";
+import { getContactService } from "~/lib/services/contact.server";
+import { getContactListService } from "~/lib/services/contactlist.server";
 import { generateId } from "~/lib/utils";
 
 interface FilterRule {
@@ -22,10 +23,10 @@ export async function loader(args: LoaderFunctionArgs) {
   }
 
   try {
-    const kvService = getKVService(args.context);
+    const contactService = getContactService(args.context);
     
     // Get all contacts to extract available metadata fields
-    const allContacts = await kvService.listContacts(orgId);
+    const allContacts = await contactService.listContacts(orgId);
     
     // Extract unique metadata fields across all contacts
     const metadataFields = new Set<string>();
@@ -86,10 +87,11 @@ export async function action(args: ActionFunctionArgs) {
 
   try {
     const filters: FilterRule[] = JSON.parse(filtersJson);
-    const kvService = getKVService(args.context);
+    const contactService = getContactService(args.context);
+    const contactListService = getContactListService(args.context);
     
     // Get all contacts
-    const allContacts = await kvService.listContacts(orgId);
+    const allContacts = await contactService.listContacts(orgId);
     
     // Apply filters to find matching contacts
     const matchingContacts = allContacts.filter(contact => {
@@ -98,7 +100,7 @@ export async function action(args: ActionFunctionArgs) {
 
     // Create segment
     const segmentId = generateId();
-    await kvService.createContactList(orgId, segmentId, {
+    await contactListService.createContactList(orgId, segmentId, {
       name: segmentName,
       description: segmentDescription,
       filters,
@@ -111,7 +113,7 @@ export async function action(args: ActionFunctionArgs) {
       const existingLists = contact.contactListIds || [];
       if (!existingLists.includes(segmentId)) {
         contact.contactListIds = [...existingLists, segmentId];
-        await kvService.createContact(orgId, contact.id, contact);
+        await contactService.updateContact(orgId, contact.id, contact);
       }
     }
 

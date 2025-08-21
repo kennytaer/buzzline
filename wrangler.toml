@@ -4,6 +4,15 @@ compatibility_date = "2024-10-15"
 compatibility_flags = ["nodejs_compat"]
 pages_build_output_dir = "./build/client"
 
+# Environment Variables
+[vars]
+CLERK_PUBLISHABLE_KEY = "pk_test_ZGVlcC1tb3NxdWl0by02MC5jbGVyay5hY2NvdW50cy5kZXYk"
+CLERK_SECRET_KEY = "sk_test_4Cj9U7ewdXZjElwfNxa39rMFzuUVrND4HeNLWSdaVP"
+TWILIO_ACCOUNT_SID = "AC47a352bf4dc3265e74e1bb481fb8a845"
+TWILIO_AUTH_TOKEN = "ffdb404cded3ada739ac80d555ddc086"
+EMAILING_ENDPOINT = "bm-emailing-middleware.benchmetrics.workers.dev"
+SMS_ENDPOINT = "bm-benchmetrics-sms-service.benchmetrics.workers.dev"
+
 # KV Namespaces
 [[kv_namespaces]]
 binding = "BUZZLINE_MAIN"

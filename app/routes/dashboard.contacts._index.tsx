@@ -2,8 +2,11 @@ import { useLoaderData, useFetcher, useRevalidator } from "@remix-run/react";
 import type { LoaderFunctionArgs, ActionFunctionArgs } from "@remix-run/cloudflare";
 import { getAuth } from "@clerk/remix/ssr.server";
 import { redirect, json } from "@remix-run/cloudflare";
-import { getKVService } from "~/lib/kv.server";
 import { useState, useEffect } from "react";
+import { getContactService } from "~/lib/services/contact.server";
+import { getContactListService } from "~/lib/services/contactlist.server";
+import { getCampaignService } from "~/lib/services/campaign.server";
+import { CampaignSender } from "~/lib/campaign-sender.server";
 
 export async function loader(args: LoaderFunctionArgs) {
   const { userId, orgId } = await getAuth(args);
@@ -13,23 +16,28 @@ export async function loader(args: LoaderFunctionArgs) {
   }
 
   try {
-    const kvService = getKVService(args.context);
-    
     // Get URL search params
     const url = new URL(args.request.url);
     const page = parseInt(url.searchParams.get("page") || "1");
     const limit = parseInt(url.searchParams.get("limit") || "50");
     const search = url.searchParams.get("search") || "";
     
-    // Fetch paginated contacts and segments from KV store
-    const contactsData = await kvService.getContactsPaginated(orgId, page, limit, search);
+    // Use new service architecture with parallel calls
+    const contactService = getContactService(args.context);
+    const contactListService = getContactListService(args.context);
+    const campaignService = getCampaignService(args.context);
     
-    const segments = await kvService.listContactLists(orgId);
+    const [contactsData, segments, campaigns] = await Promise.all([
+      contactService.getContactsPaginated(orgId, page, limit, search),
+      contactListService.listContactLists(orgId),
+      campaignService.listCampaigns(orgId)
+    ]);
 
     return json({ 
       orgId, 
       contacts: contactsData.contacts, 
       segments,
+      campaigns: campaigns || [],
       pagination: {
         currentPage: contactsData.currentPage,
         totalPages: contactsData.totalPages,
@@ -47,6 +55,7 @@ export async function loader(args: LoaderFunctionArgs) {
       orgId, 
       contacts: [], 
       segments: [],
+      campaigns: [],
       pagination: { currentPage: 1, totalPages: 0, totalContacts: 0, limit: 50, hasNextPage: false, hasPrevPage: false },
       search: ""
     });
@@ -62,21 +71,80 @@ export async function action(args: ActionFunctionArgs) {
 
   const formData = await args.request.formData();
   const intent = formData.get("intent");
-  const contactId = formData.get("contactId");
+  
+  if (intent === "sendCampaign") {
+    const contactId = formData.get("contactId");
+    const campaignId = formData.get("campaignId");
+    
+    if (!campaignId || !contactId) {
+      return json({ success: false, message: "Campaign ID and Contact ID are required" }, { status: 400 });
+    }
 
-  if (intent === "delete" && contactId) {
     try {
-      const kvService = getKVService(args.context);
-      const success = await kvService.deleteContact(orgId, contactId.toString());
+      const contactService = getContactService(args.context);
+      const campaignService = getCampaignService(args.context);
+      const campaignSender = new CampaignSender(args.context);
       
-      if (success) {
-        return json({ success: true, message: "Contact deleted successfully" });
-      } else {
+      // Verify campaign and contact exist
+      const [campaign, contact] = await Promise.all([
+        campaignService.getCampaign(orgId, campaignId.toString()),
+        contactService.getContact(orgId, contactId.toString())
+      ]);
+      
+      if (!campaign) {
+        return json({ success: false, message: "Campaign not found" }, { status: 404 });
+      }
+      
+      if (!contact) {
         return json({ success: false, message: "Contact not found" }, { status: 404 });
       }
+
+      // Store original campaign data
+      const originalData = {
+        targetingMode: campaign.targetingMode,
+        specificContactIds: campaign.specificContactIds,
+        contactListIds: campaign.contactListIds
+      };
+
+      // Create temporary modified campaign for individual sending
+      const individualCampaign = {
+        ...campaign,
+        targetingMode: "specific",
+        specificContactIds: [contactId.toString()],
+        contactListIds: []
+      };
+
+      // Update campaign temporarily
+      await campaignService.updateCampaign(orgId, campaignId.toString(), individualCampaign);
+      
+      try {
+        // Send the campaign with individual send flag
+        const result = await campaignSender.sendCampaign(orgId, campaignId.toString(), true);
+        
+        // Restore original campaign
+        await campaignService.updateCampaign(orgId, campaignId.toString(), originalData);
+
+        if (result.success) {
+          return json({ 
+            success: true, 
+            message: `Campaign sent successfully to ${contact.firstName || contact.email}`,
+            result 
+          });
+        } else {
+          return json({ 
+            success: false, 
+            message: "Failed to send campaign", 
+            errors: result.errors 
+          }, { status: 500 });
+        }
+      } catch (error) {
+        // Restore original campaign on error
+        await campaignService.updateCampaign(orgId, campaignId.toString(), originalData);
+        throw error;
+      }
     } catch (error) {
-      console.error("Error deleting contact:", error);
-      return json({ success: false, message: "Failed to delete contact" }, { status: 500 });
+      console.error("Error sending campaign:", error);
+      return json({ success: false, message: "Failed to send campaign" }, { status: 500 });
     }
   }
 
@@ -84,387 +152,314 @@ export async function action(args: ActionFunctionArgs) {
 }
 
 export default function ContactsIndex() {
-  const { contacts, segments, pagination, search } = useLoaderData<typeof loader>();
+  const { contacts, segments, campaigns, pagination, search } = useLoaderData<typeof loader>();
   const fetcher = useFetcher();
   const revalidator = useRevalidator();
-  const [deletingContactId, setDeletingContactId] = useState<string | null>(null);
+  const [selectedContact, setSelectedContact] = useState<any>(null);
+  const [showCampaignModal, setShowCampaignModal] = useState(false);
+  const [sendingCampaignId, setSendingCampaignId] = useState<string | null>(null);
 
-  const handleDeleteContact = (contactId: string) => {
-    if (confirm("Are you sure you want to delete this contact? This action cannot be undone.")) {
-      setDeletingContactId(contactId);
-      const formData = new FormData();
-      formData.append("intent", "delete");
-      formData.append("contactId", contactId);
-      fetcher.submit(formData, { method: "post" });
-    }
+  const handleSendCampaign = (contact: any) => {
+    setSelectedContact(contact);
+    setShowCampaignModal(true);
+  };
+
+  const handleSendSelectedCampaign = (campaignId: string) => {
+    if (!selectedContact) return;
+    
+    setSendingCampaignId(campaignId);
+    setShowCampaignModal(false);
+    
+    fetcher.submit(
+      {
+        intent: "sendCampaign",
+        contactId: selectedContact.id,
+        campaignId: campaignId,
+      },
+      { method: "POST" }
+    );
   };
 
   useEffect(() => {
-    if (fetcher.state === "idle" && fetcher.data) {
-      setDeletingContactId(null);
-      const data = fetcher.data as { success: boolean; message: string };
-      if (data.success) {
-        // Revalidate to refresh the data from server
+    if (fetcher.state === 'idle' && fetcher.data) {
+      setSendingCampaignId(null);
+      if ((fetcher.data as any).success) {
         revalidator.revalidate();
       }
     }
-  }, [fetcher.state, fetcher.data, revalidator]);
+  }, [fetcher.state, fetcher.data]);
+
+  const isLoading = fetcher.state === 'submitting';
 
   return (
     <div className="space-y-6">
-      {/* Segments Section */}
-      <div>
-        <div className="flex items-center justify-between mb-4">
-          <h3 className="text-lg font-medium text-gray-900">Segments</h3>
-          <a
-            href="/dashboard/contacts/segments/new"
-            className="inline-flex items-center px-3 py-2 border border-transparent text-sm leading-4 font-medium rounded-md text-white bg-primary-500 hover:bg-primary-600"
+
+      {/* Search Bar */}
+      <div className="max-w-lg">
+        <form method="GET" className="flex gap-x-4">
+          <input
+            type="text"
+            name="search"
+            defaultValue={search}
+            placeholder="Search contacts..."
+            className="block w-full rounded-md border-0 py-2 px-4 text-gray-900 shadow-sm ring-1 ring-inset ring-gray-300 placeholder:text-gray-400 focus:ring-2 focus:ring-inset focus:ring-primary-600 sm:text-sm sm:leading-6"
+          />
+          <button
+            type="submit"
+            className="rounded-md bg-primary-600 px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-primary-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-600"
           >
-            <svg className="-ml-0.5 mr-2 h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
-            </svg>
-            Create Segment
-          </a>
-        </div>
-        {segments.length === 0 ? (
-          <div className="text-center py-6 bg-gray-50 rounded-lg">
-            <svg
-              className="mx-auto h-12 w-12 text-gray-400"
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
+            Search
+          </button>
+          {search && (
+            <a
+              href="/dashboard/contacts"
+              className="rounded-md bg-gray-600 px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-gray-500"
             >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"
-              />
-            </svg>
-            <h3 className="mt-2 text-sm font-medium text-gray-900">No segments</h3>
-            <p className="mt-1 text-sm text-gray-500">Create segments by filtering your contacts or upload a CSV file.</p>
-            <div className="mt-6 flex justify-center space-x-3">
-              <a
-                href="/dashboard/contacts/segments/new"
-                className="inline-flex items-center px-4 py-2 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-primary-500 hover:bg-primary-600"
-              >
-                <svg className="-ml-1 mr-2 h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
-                </svg>
-                Create Segment
-              </a>
-              <a
-                href="/dashboard/contacts/upload"
-                className="inline-flex items-center px-4 py-2 border border-gray-300 shadow-sm text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50"
-              >
-                Upload CSV
-              </a>
-            </div>
-          </div>
-        ) : (
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {segments.map((segment: any) => (
-              <div
-                key={segment.id}
-                className="relative rounded-lg border border-gray-300 bg-white px-6 py-5 shadow-sm hover:border-gray-400"
-              >
-                <div className="flex items-center space-x-3">
-                  <div className="flex-shrink-0">
-                    <div className="h-10 w-10 rounded-full bg-secondary-500 flex items-center justify-center">
-                      <svg className="h-6 w-6 text-white" fill="currentColor" viewBox="0 0 20 20">
-                        <path d="M13 6a3 3 0 11-6 0 3 3 0 016 0zM18 8a2 2 0 11-4 0 2 2 0 014 0zM14 15a4 4 0 00-8 0v3h8v-3z" />
-                      </svg>
-                    </div>
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <a href={`/dashboard/contacts/segments/${segment.id}`} className="focus:outline-none">
-                      <p className="text-sm font-medium text-gray-900">{segment.name}</p>
-                      <p className="text-sm text-gray-500">{segment.description || 'No description'}</p>
-                    </a>
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
+              Clear
+            </a>
+          )}
+        </form>
       </div>
 
-      {/* All Contacts Section */}
-      <div>
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between mb-4">
-          <h3 className="text-lg font-medium text-gray-900 mb-2 sm:mb-0">
-            All Contacts ({pagination.totalContacts})
-          </h3>
-          
-          {/* Search Box */}
-          <div className="flex items-center space-x-4 mt-4 sm:mt-0">
-            <form method="GET" className="flex items-center space-x-2">
-              <div className="relative">
-                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                  <svg className="h-5 w-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-                  </svg>
-                </div>
-                <input
-                  type="text"
-                  name="search"
-                  defaultValue={search}
-                  className="block w-full pl-10 pr-3 py-2 border border-gray-300 rounded-md leading-5 bg-white placeholder-gray-500 focus:outline-none focus:placeholder-gray-400 focus:ring-1 focus:ring-primary-500 focus:border-primary-500"
-                  placeholder="Search contacts..."
-                />
-              </div>
-              <button
-                type="submit"
-                className="inline-flex items-center px-3 py-2 border border-transparent text-sm leading-4 font-medium rounded-md text-white bg-primary-500 hover:bg-primary-600"
-              >
-                Search
-              </button>
-              {search && (
-                <a
-                  href="/dashboard/contacts"
-                  className="inline-flex items-center px-3 py-2 border border-gray-300 text-sm leading-4 font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50"
-                >
-                  Clear
-                </a>
-              )}
-            </form>
+      {/* Success/Error Messages */}
+      {fetcher.data && (fetcher.data as any).message && (
+        <div className={`rounded-md p-4 ${(fetcher.data as any).success ? 'bg-green-50' : 'bg-red-50'}`}>
+          <div className="flex">
+            <div className="ml-3">
+              <p className={`text-sm font-medium ${(fetcher.data as any).success ? 'text-green-800' : 'text-red-800'}`}>
+                {(fetcher.data as any).message}
+              </p>
+            </div>
           </div>
         </div>
-        {contacts.length === 0 ? (
-          <div className="text-center py-6 bg-gray-50 rounded-lg">
-            <svg
-              className="mx-auto h-12 w-12 text-gray-400"
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"
-              />
-            </svg>
-            <h3 className="mt-2 text-sm font-medium text-gray-900">No contacts</h3>
-            <p className="mt-1 text-sm text-gray-500">Get started by adding a new contact or uploading a CSV file.</p>
-            <div className="mt-6 flex justify-center space-x-3">
-              <a
-                href="/dashboard/contacts/upload"
-                className="inline-flex items-center px-4 py-2 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-primary-500 hover:bg-primary-600"
-              >
-                Upload CSV
-              </a>
-              <a
-                href="/dashboard/contacts/new"
-                className="inline-flex items-center px-4 py-2 border border-gray-300 shadow-sm text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50"
-              >
-                <svg className="-ml-1 mr-2 h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+      )}
+
+      {/* Contacts Table */}
+      <div className="mt-8 flow-root">
+        <div className="-mx-4 -my-2 overflow-x-auto sm:-mx-6 lg:-mx-8">
+          <div className="inline-block min-w-full py-2 align-middle sm:px-6 lg:px-8">
+            {contacts.length === 0 ? (
+              <div className="text-center">
+                <svg
+                  className="mx-auto h-12 w-12 text-gray-400"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                  aria-hidden="true"
+                >
+                  <path
+                    vectorEffect="non-scaling-stroke"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"
+                  />
                 </svg>
-                Add Contact
-              </a>
-            </div>
-          </div>
-        ) : (
-          <div className="overflow-hidden shadow ring-1 ring-black ring-opacity-5 md:rounded-lg">
-            <table className="min-w-full divide-y divide-gray-300">
-              <thead className="bg-gray-50">
-                <tr>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wide">
-                    Name
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wide">
-                    Email
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wide">
-                    Phone
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wide">
-                    Custom Fields
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wide">
-                    Status
-                  </th>
-                  <th className="relative px-6 py-3">
-                    <span className="sr-only">Actions</span>
-                  </th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-200 bg-white">
-                {contacts.map((contact: any) => (
-                  <tr key={contact.id}>
-                    <td className="whitespace-nowrap px-6 py-4 text-sm font-medium text-gray-900">
-                      {contact.firstName} {contact.lastName}
-                    </td>
-                    <td className="whitespace-nowrap px-6 py-4 text-sm text-gray-500">
-                      {contact.email}
-                    </td>
-                    <td className="whitespace-nowrap px-6 py-4 text-sm text-gray-500">
-                      {contact.phone}
-                    </td>
-                    <td className="px-6 py-4 text-sm text-gray-500">
-                      {contact.hasMetadata ? (
-                        <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
-                          Has Custom Fields
-                        </span>
-                      ) : (
-                        <span className="text-gray-400 text-xs">None</span>
-                      )}
-                    </td>
-                    <td className="whitespace-nowrap px-6 py-4 text-sm text-gray-500">
-                      {contact.optedOut ? (
-                        <span className="inline-flex rounded-full bg-red-100 px-2 text-xs font-semibold leading-5 text-red-800">
-                          Opted Out
-                        </span>
-                      ) : (
-                        <span className="inline-flex rounded-full bg-green-100 px-2 text-xs font-semibold leading-5 text-green-800">
-                          Active
-                        </span>
-                      )}
-                    </td>
-                    <td className="relative whitespace-nowrap py-4 pl-3 pr-4 text-right text-sm font-medium sm:pr-6">
-                      <div className="flex items-center justify-end space-x-2">
-                        <a href={`/dashboard/contacts/${contact.id}`} className="text-primary-600 hover:text-primary-900">
-                          View
-                        </a>
-                        <button
-                          onClick={() => handleDeleteContact(contact.id)}
-                          disabled={deletingContactId === contact.id}
-                          className="text-red-600 hover:text-red-900 disabled:opacity-50"
+                <h3 className="mt-2 text-sm font-semibold text-gray-900">No contacts</h3>
+                <p className="mt-1 text-sm text-gray-500">Get started by uploading a CSV file or adding a contact.</p>
+                <div className="mt-6 space-x-3">
+                  <a
+                    href="/dashboard/contacts/upload"
+                    className="inline-flex items-center rounded-md bg-primary-600 px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-primary-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-600"
+                  >
+                    Upload CSV
+                  </a>
+                  <a
+                    href="/dashboard/contacts/new"
+                    className="inline-flex items-center rounded-md bg-white px-3 py-2 text-sm font-semibold text-gray-900 shadow-sm ring-1 ring-inset ring-gray-300 hover:bg-gray-50"
+                  >
+                    Add Contact
+                  </a>
+                </div>
+              </div>
+            ) : (
+              <div className="overflow-hidden shadow ring-1 ring-black ring-opacity-5 md:rounded-lg">
+                <table className="min-w-full divide-y divide-gray-300">
+                  <thead className="bg-gray-50">
+                    <tr>
+                      <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wide">
+                        Name
+                      </th>
+                      <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wide">
+                        Email
+                      </th>
+                      <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wide">
+                        Phone
+                      </th>
+                      <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wide">
+                        Status
+                      </th>
+                      <th scope="col" className="relative px-6 py-3">
+                        <span className="sr-only">Actions</span>
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-200 bg-white">
+                    {contacts.map((contact: any) => (
+                      <tr key={contact.id}>
+                        <td className="whitespace-nowrap px-6 py-4 text-sm font-medium text-gray-900">
+                          <div className="flex items-center">
+                            <div className="flex-shrink-0 h-10 w-10">
+                              <div className="h-10 w-10 rounded-full bg-gray-300 flex items-center justify-center">
+                                <span className="text-sm font-medium text-gray-700">
+                                  {contact.firstName?.[0] || contact.email?.[0]?.toUpperCase() || '?'}
+                                </span>
+                              </div>
+                            </div>
+                            <div className="ml-4">
+                              <div className="text-sm font-medium text-gray-900">
+                                {contact.firstName} {contact.lastName}
+                              </div>
+                              {contact.hasMetadata && (
+                                <div className="text-xs text-gray-500">
+                                  Has custom data
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        </td>
+                        <td className="whitespace-nowrap px-6 py-4 text-sm text-gray-500">
+                          {contact.email}
+                        </td>
+                        <td className="whitespace-nowrap px-6 py-4 text-sm text-gray-500">
+                          {contact.phone}
+                        </td>
+                        <td className="whitespace-nowrap px-6 py-4 text-sm text-gray-500">
+                          <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${
+                            contact.optedOut 
+                              ? 'bg-red-100 text-red-800' 
+                              : 'bg-green-100 text-green-800'
+                          }`}>
+                            {contact.optedOut ? 'Opted Out' : 'Active'}
+                          </span>
+                        </td>
+                        <td className="relative whitespace-nowrap py-4 pl-3 pr-4 text-right text-sm font-medium sm:pr-6">
+                          <div className="flex items-center space-x-6">
+                            <button
+                              onClick={() => handleSendCampaign(contact)}
+                              disabled={isLoading}
+                              className="text-primary-600 hover:text-primary-900 disabled:opacity-50"
+                            >
+                              Send Campaign
+                            </button>
+                            <a
+                              href={`/dashboard/contacts/${contact.id}`}
+                              className="text-primary-600 hover:text-primary-900"
+                            >
+                              Edit
+                            </a>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+
+                {/* Pagination */}
+                {pagination.totalPages > 1 && (
+                  <nav className="flex items-center justify-between border-t border-gray-200 bg-white px-4 py-3 sm:px-6">
+                    <div className="flex flex-1 justify-between sm:hidden">
+                      {pagination.hasPrevPage && (
+                        <a
+                          href={`?page=${pagination.currentPage - 1}${search ? `&search=${encodeURIComponent(search)}` : ''}`}
+                          className="relative inline-flex items-center rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
                         >
-                          {deletingContactId === contact.id ? "Deleting..." : "Delete"}
-                        </button>
+                          Previous
+                        </a>
+                      )}
+                      {pagination.hasNextPage && (
+                        <a
+                          href={`?page=${pagination.currentPage + 1}${search ? `&search=${encodeURIComponent(search)}` : ''}`}
+                          className="relative ml-3 inline-flex items-center rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+                        >
+                          Next
+                        </a>
+                      )}
+                    </div>
+                    <div className="hidden sm:flex sm:flex-1 sm:items-center sm:justify-between">
+                      <div>
+                        <p className="text-sm text-gray-700">
+                          Showing page <span className="font-medium">{pagination.currentPage}</span> of{' '}
+                          <span className="font-medium">{pagination.totalPages}</span>
+                          {' '}({pagination.totalContacts} total contacts)
+                        </p>
                       </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-        
-        {/* Pagination */}
-        {pagination.totalPages > 1 && (
-          <div className="bg-white px-4 py-3 flex items-center justify-between border-t border-gray-200 sm:px-6">
-            <div className="flex-1 flex justify-between sm:hidden">
-              {pagination.hasPrevPage ? (
-                <a
-                  href={`?page=${pagination.currentPage - 1}${search ? `&search=${encodeURIComponent(search)}` : ''}`}
-                  className="relative inline-flex items-center px-4 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50"
-                >
-                  Previous
-                </a>
-              ) : (
-                <span className="relative inline-flex items-center px-4 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-400 bg-gray-100">
-                  Previous
-                </span>
-              )}
-              {pagination.hasNextPage ? (
-                <a
-                  href={`?page=${pagination.currentPage + 1}${search ? `&search=${encodeURIComponent(search)}` : ''}`}
-                  className="ml-3 relative inline-flex items-center px-4 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50"
-                >
-                  Next
-                </a>
-              ) : (
-                <span className="ml-3 relative inline-flex items-center px-4 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-400 bg-gray-100">
-                  Next
-                </span>
-              )}
-            </div>
-            
-            <div className="hidden sm:flex-1 sm:flex sm:items-center sm:justify-between">
-              <div>
-                <p className="text-sm text-gray-700">
-                  Showing{' '}
-                  <span className="font-medium">{((pagination.currentPage - 1) * pagination.limit) + 1}</span>
-                  {' '}to{' '}
-                  <span className="font-medium">
-                    {Math.min(pagination.currentPage * pagination.limit, pagination.totalContacts)}
-                  </span>
-                  {' '}of{' '}
-                  <span className="font-medium">{pagination.totalContacts}</span>
-                  {' '}results
-                  {search && <span> for "{search}"</span>}
-                </p>
+                      <div>
+                        <nav className="isolate inline-flex -space-x-px rounded-md shadow-sm" aria-label="Pagination">
+                          {pagination.hasPrevPage && (
+                            <a
+                              href={`?page=${pagination.currentPage - 1}${search ? `&search=${encodeURIComponent(search)}` : ''}`}
+                              className="relative inline-flex items-center rounded-l-md px-2 py-2 text-gray-400 ring-1 ring-inset ring-gray-300 hover:bg-gray-50 focus:z-20 focus:outline-offset-0"
+                            >
+                              Previous
+                            </a>
+                          )}
+                          {pagination.hasNextPage && (
+                            <a
+                              href={`?page=${pagination.currentPage + 1}${search ? `&search=${encodeURIComponent(search)}` : ''}`}
+                              className="relative inline-flex items-center rounded-r-md px-2 py-2 text-gray-400 ring-1 ring-inset ring-gray-300 hover:bg-gray-50 focus:z-20 focus:outline-offset-0"
+                            >
+                              Next
+                            </a>
+                          )}
+                        </nav>
+                      </div>
+                    </div>
+                  </nav>
+                )}
               </div>
-              <div>
-                <nav className="relative z-0 inline-flex rounded-md shadow-sm -space-x-px" aria-label="Pagination">
-                  {/* Previous page link */}
-                  {pagination.hasPrevPage ? (
-                    <a
-                      href={`?page=${pagination.currentPage - 1}${search ? `&search=${encodeURIComponent(search)}` : ''}`}
-                      className="relative inline-flex items-center px-2 py-2 rounded-l-md border border-gray-300 bg-white text-sm font-medium text-gray-500 hover:bg-gray-50"
-                    >
-                      <span className="sr-only">Previous</span>
-                      <svg className="h-5 w-5" fill="currentColor" viewBox="0 0 20 20">
-                        <path fillRule="evenodd" d="M12.707 5.293a1 1 0 010 1.414L9.414 10l3.293 3.293a1 1 0 01-1.414 1.414l-4-4a1 1 0 010-1.414l4-4a1 1 0 011.414 0z" clipRule="evenodd" />
-                      </svg>
-                    </a>
-                  ) : (
-                    <span className="relative inline-flex items-center px-2 py-2 rounded-l-md border border-gray-300 bg-gray-100 text-sm font-medium text-gray-400">
-                      <span className="sr-only">Previous</span>
-                      <svg className="h-5 w-5" fill="currentColor" viewBox="0 0 20 20">
-                        <path fillRule="evenodd" d="M12.707 5.293a1 1 0 010 1.414L9.414 10l3.293 3.293a1 1 0 01-1.414 1.414l-4-4a1 1 0 010-1.414l4-4a1 1 0 011.414 0z" clipRule="evenodd" />
-                      </svg>
-                    </span>
-                  )}
-                  
-                  {/* Page numbers */}
-                  {Array.from({ length: Math.min(5, pagination.totalPages) }, (_, i) => {
-                    let pageNum;
-                    if (pagination.totalPages <= 5) {
-                      pageNum = i + 1;
-                    } else if (pagination.currentPage <= 3) {
-                      pageNum = i + 1;
-                    } else if (pagination.currentPage >= pagination.totalPages - 2) {
-                      pageNum = pagination.totalPages - 4 + i;
-                    } else {
-                      pageNum = pagination.currentPage - 2 + i;
-                    }
-                    
-                    const isCurrentPage = pageNum === pagination.currentPage;
-                    
-                    return (
-                      <a
-                        key={pageNum}
-                        href={`?page=${pageNum}${search ? `&search=${encodeURIComponent(search)}` : ''}`}
-                        className={`relative inline-flex items-center px-4 py-2 border text-sm font-medium ${
-                          isCurrentPage
-                            ? 'z-10 bg-primary-50 border-primary-500 text-primary-600'
-                            : 'bg-white border-gray-300 text-gray-500 hover:bg-gray-50'
-                        }`}
-                      >
-                        {pageNum}
-                      </a>
-                    );
-                  })}
-                  
-                  {/* Next page link */}
-                  {pagination.hasNextPage ? (
-                    <a
-                      href={`?page=${pagination.currentPage + 1}${search ? `&search=${encodeURIComponent(search)}` : ''}`}
-                      className="relative inline-flex items-center px-2 py-2 rounded-r-md border border-gray-300 bg-white text-sm font-medium text-gray-500 hover:bg-gray-50"
-                    >
-                      <span className="sr-only">Next</span>
-                      <svg className="h-5 w-5" fill="currentColor" viewBox="0 0 20 20">
-                        <path fillRule="evenodd" d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z" clipRule="evenodd" />
-                      </svg>
-                    </a>
-                  ) : (
-                    <span className="relative inline-flex items-center px-2 py-2 rounded-r-md border border-gray-300 bg-gray-100 text-sm font-medium text-gray-400">
-                      <span className="sr-only">Next</span>
-                      <svg className="h-5 w-5" fill="currentColor" viewBox="0 0 20 20">
-                        <path fillRule="evenodd" d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z" clipRule="evenodd" />
-                      </svg>
-                    </span>
-                  )}
-                </nav>
-              </div>
-            </div>
+            )}
           </div>
-        )}
+        </div>
       </div>
+
+      {/* Campaign Selection Modal */}
+      {showCampaignModal && selectedContact && (
+        <div className="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50" onClick={() => setShowCampaignModal(false)}>
+          <div className="relative top-20 mx-auto p-6 border w-full max-w-md shadow-lg rounded-md bg-white" onClick={(e) => e.stopPropagation()}>
+            <div className="mt-3">
+              <h3 className="text-lg font-medium text-gray-900 text-center mb-4">
+                Send Campaign to {selectedContact.firstName || selectedContact.email}
+              </h3>
+              
+              {campaigns.length === 0 ? (
+                <p className="text-center text-gray-500 py-4">No campaigns available</p>
+              ) : (
+                <div className="space-y-3">
+                  {campaigns.map((campaign: any) => (
+                    <button
+                      key={campaign.id}
+                      onClick={() => handleSendSelectedCampaign(campaign.id)}
+                      disabled={sendingCampaignId === campaign.id || isLoading}
+                      className="w-full text-left p-3 border rounded-md hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                    >
+                      <div className="font-medium text-gray-900">{campaign.name}</div>
+                      <div className="text-sm text-gray-500 capitalize">{campaign.type} campaign</div>
+                      <div className="text-xs text-gray-400 mt-1">{campaign.status}</div>
+                      {sendingCampaignId === campaign.id && (
+                        <div className="text-sm text-blue-600 mt-2 flex items-center">
+                          <div className="animate-spin rounded-full h-3 w-3 border-b-2 border-blue-600 mr-2"></div>
+                          Sending...
+                        </div>
+                      )}
+                    </button>
+                  ))}
+                </div>
+              )}
+              
+              <div className="mt-6 flex justify-end space-x-3">
+                <button
+                  onClick={() => setShowCampaignModal(false)}
+                  disabled={isLoading}
+                  className="px-4 py-2 bg-gray-300 text-gray-700 rounded-md hover:bg-gray-400 disabled:opacity-50"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

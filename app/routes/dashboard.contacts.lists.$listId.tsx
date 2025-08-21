@@ -2,7 +2,8 @@ import { useLoaderData } from "@remix-run/react";
 import type { LoaderFunctionArgs } from "@remix-run/cloudflare";
 import { getAuth } from "@clerk/remix/ssr.server";
 import { redirect, json } from "@remix-run/cloudflare";
-import { getKVService } from "~/lib/kv.server";
+import { getContactService } from "~/lib/services/contact.server";
+import { getContactListService } from "~/lib/services/contactlist.server";
 import { formatDate, formatDateOnly } from "~/lib/utils";
 
 export async function loader(args: LoaderFunctionArgs) {
@@ -18,21 +19,19 @@ export async function loader(args: LoaderFunctionArgs) {
   }
 
   try {
-    const kvService = getKVService(args.context);
+    const contactService = getContactService(args.context);
+    const contactListService = getContactListService(args.context);
     
     // Get the contact list
-    const contactList = await kvService.getContactList(orgId, listId);
+    const contactList = await contactListService.getContactList(orgId, listId);
     if (!contactList) {
       throw new Response("Contact list not found", { status: 404 });
     }
 
-    // Get all contacts for this organization
-    const allContacts = await kvService.listContacts(orgId);
-    
-    // Filter contacts that belong to this list
-    const listContacts = allContacts ? allContacts.filter((contact: any) => 
-      contact && contact.contactListIds && contact.contactListIds.includes(listId)
-    ) : [];
+    // Get contacts for this list directly
+    const contactIds = contactList.contactIds || [];
+    const listContacts = contactIds.length > 0 ? 
+      await contactService.getContactsByIds(orgId, contactIds) : [];
 
     return json({ 
       contactList, 

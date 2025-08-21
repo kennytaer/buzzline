@@ -43,16 +43,66 @@ export function isValidPhone(phone: string): boolean {
   return digits.length >= 10 && digits.length <= 11;
 }
 
-// Parse CSV content
-export function parseCSV(csvContent: string): Array<Record<string, string>> {
+// Parse CSV content with proper handling of quoted fields
+export function parseCSV(csvContent: string, hasHeaders: boolean = true): Array<Record<string, string>> {
   const lines = csvContent.trim().split('\n');
-  if (lines.length < 2) return [];
+  if (lines.length < 1) return [];
   
-  const headers = lines[0].split(',').map(h => h.trim().replace(/"/g, ''));
+  // Helper function to properly parse CSV line
+  function parseCSVLine(line: string): string[] {
+    const result: string[] = [];
+    let current = '';
+    let inQuotes = false;
+    let i = 0;
+    
+    while (i < line.length) {
+      const char = line[i];
+      const nextChar = line[i + 1];
+      
+      if (char === '"' && inQuotes && nextChar === '"') {
+        // Escaped quote within quoted field
+        current += '"';
+        i += 2;
+      } else if (char === '"') {
+        // Start or end of quoted field
+        inQuotes = !inQuotes;
+        i++;
+      } else if (char === ',' && !inQuotes) {
+        // Field separator
+        result.push(current.trim());
+        current = '';
+        i++;
+      } else {
+        current += char;
+        i++;
+      }
+    }
+    
+    // Add the last field
+    result.push(current.trim());
+    return result;
+  }
+  
+  let headers: string[];
+  let startIndex: number;
+  
+  if (hasHeaders) {
+    headers = parseCSVLine(lines[0]).map(h => h.trim());
+    startIndex = 1;
+  } else {
+    // Generate column headers like "Column 1", "Column 2", etc.
+    const firstRowValues = parseCSVLine(lines[0]);
+    headers = firstRowValues.map((_, index) => `Column ${index + 1}`);
+    startIndex = 0;
+  }
+  
   const data: Array<Record<string, string>> = [];
   
-  for (let i = 1; i < lines.length; i++) {
-    const values = lines[i].split(',').map(v => v.trim().replace(/"/g, ''));
+  for (let i = startIndex; i < lines.length; i++) {
+    const line = lines[i].trim();
+    if (!line) continue; // Skip empty lines
+    
+    const values = parseCSVLine(line);
     const row: Record<string, string> = {};
     
     headers.forEach((header, index) => {
