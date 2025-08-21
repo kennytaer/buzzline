@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { useLoaderData, useActionData, Form, useNavigate } from "@remix-run/react";
+import { useLoaderData, useActionData, Form, useNavigate, useSearchParams } from "@remix-run/react";
 // Simple rich text editor using contentEditable
 import type { LoaderFunctionArgs, ActionFunctionArgs } from "@remix-run/cloudflare";
 import { getAuth } from "@clerk/remix/ssr.server";
@@ -177,7 +177,7 @@ export default function NewCampaign() {
   const actionData = useActionData<typeof action>();
   
   // Check if we're in edit mode by reading URL parameters
-  const [searchParams] = new URLSearchParams(typeof window !== 'undefined' ? window.location.search : '');
+  const [searchParams] = useSearchParams();
   const isEditMode = searchParams.get('editMode') === 'true';
   const editCampaignId = searchParams.get('campaignId');
   
