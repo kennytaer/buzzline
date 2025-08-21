@@ -40,19 +40,25 @@ export class MessagingService {
     this.twilioAccountSid = env.TWILIO_ACCOUNT_SID || '';
     this.twilioAuthToken = env.TWILIO_AUTH_TOKEN || '';
     
-    // Debug logging
-    console.log('MessagingService initialization:', {
+    // Enhanced debug logging
+    console.log('🔧 MessagingService constructor called:', {
       hasContext: !!context,
       hasContextEnv: !!context?.env,
-      smsEndpoint: this.smsEndpoint ? 'SET' : 'NOT SET',
-      emailEndpoint: this.emailEndpoint ? 'SET' : 'NOT SET',
-      processEnvSMS: process.env.SMS_ENDPOINT ? 'SET' : 'NOT SET',
-      processEnvEmail: process.env.EMAILING_ENDPOINT ? 'SET' : 'NOT SET'
+      contextEnvKeys: context?.env ? Object.keys(context.env) : 'No context.env',
+      envSmsEndpoint: env.SMS_ENDPOINT,
+      envEmailEndpoint: env.EMAILING_ENDPOINT,
+      finalSmsEndpoint: this.smsEndpoint,
+      finalEmailEndpoint: this.emailEndpoint,
+      processEnvSMS: process.env.SMS_ENDPOINT,
+      processEnvEmail: process.env.EMAILING_ENDPOINT
     });
   }
 
   async sendSMS(message: SMSMessage): Promise<MessageResult> {
+    console.log('📱 sendSMS called:', { to: message.to, from: message.from, messageLength: message.message.length });
+    
     if (!this.smsEndpoint) {
+      console.log('❌ SMS service not configured - endpoint empty:', this.smsEndpoint);
       return {
         success: false,
         error: 'SMS service not configured',
@@ -120,7 +126,10 @@ export class MessagingService {
   }
 
   async sendEmail(message: EmailMessage): Promise<MessageResult> {
+    console.log('📧 sendEmail called:', { to: message.to, from: message.from, subject: message.subject });
+    
     if (!this.emailEndpoint) {
+      console.log('❌ Email service not configured - endpoint empty:', this.emailEndpoint);
       return {
         success: false,
         error: 'Email service not configured',

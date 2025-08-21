@@ -73,23 +73,38 @@ export async function action(args: ActionFunctionArgs) {
   const intent = formData.get("intent");
   
   if (intent === "sendCampaign") {
+    console.log('🎯 sendCampaign intent received in action');
+    
     const contactId = formData.get("contactId");
     const campaignId = formData.get("campaignId");
     
+    console.log('📋 Form data:', { contactId, campaignId });
+    
     if (!campaignId || !contactId) {
+      console.log('❌ Missing required data:', { campaignId, contactId });
       return json({ success: false, message: "Campaign ID and Contact ID are required" }, { status: 400 });
     }
 
     try {
+      console.log('🏗️ Creating services...');
       const contactService = getContactService(args.context);
       const campaignService = getCampaignService(args.context);
       const campaignSender = new CampaignSender(args.context);
+      console.log('✅ Services created successfully');
       
       // Verify campaign and contact exist
+      console.log('🔍 Fetching campaign and contact data...');
       const [campaign, contact] = await Promise.all([
         campaignService.getCampaign(orgId, campaignId.toString()),
         contactService.getContact(orgId, contactId.toString())
       ]);
+      console.log('📄 Data fetched:', { 
+        campaignFound: !!campaign, 
+        contactFound: !!contact,
+        campaignType: campaign?.type,
+        contactEmail: contact?.email,
+        contactPhone: contact?.phone 
+      });
       
       if (!campaign) {
         return json({ success: false, message: "Campaign not found" }, { status: 404 });
@@ -119,10 +134,14 @@ export async function action(args: ActionFunctionArgs) {
       
       try {
         // Send the campaign with individual send flag
+        console.log('🎬 Starting campaign send...');
         const result = await campaignSender.sendCampaign(orgId, campaignId.toString(), true);
+        console.log('📊 Campaign send result:', result);
         
         // Restore original campaign
+        console.log('🔄 Restoring original campaign data...');
         await campaignService.updateCampaign(orgId, campaignId.toString(), originalData);
+        console.log('✅ Original campaign data restored');
 
         if (result.success) {
           return json({ 
@@ -160,6 +179,7 @@ export default function ContactsIndex() {
   const [sendingCampaignId, setSendingCampaignId] = useState<string | null>(null);
 
   const handleSendCampaign = (contact: any) => {
+    console.log('👆 Send Campaign button clicked for contact:', contact.id, contact.email);
     setSelectedContact(contact);
     setShowCampaignModal(true);
   };
@@ -167,8 +187,15 @@ export default function ContactsIndex() {
   const handleSendSelectedCampaign = (campaignId: string) => {
     if (!selectedContact) return;
     
+    console.log('🎯 Campaign selected:', campaignId, 'for contact:', selectedContact.id);
     setSendingCampaignId(campaignId);
     setShowCampaignModal(false);
+    
+    console.log('📤 Submitting form data:', {
+      intent: "sendCampaign",
+      contactId: selectedContact.id,
+      campaignId: campaignId,
+    });
     
     fetcher.submit(
       {
