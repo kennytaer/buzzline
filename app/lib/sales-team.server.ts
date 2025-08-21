@@ -77,7 +77,7 @@ export class SalesTeamService {
     // Use the same pagination method that works, but get all members
     const result = await this.kv.getSalesTeamPaginated(orgId, 1, 1000); // Get up to 1000 members (should be enough)
     const members = result.members || [];
-    const activeMembers = members.filter(member => member.isActive);
+    const activeMembers = members.filter((member: SalesTeamMember) => member.isActive);
     return activeMembers;
   }
 

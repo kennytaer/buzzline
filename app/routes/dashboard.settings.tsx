@@ -222,15 +222,16 @@ export default function OrganizationSettings() {
     if (uploadFetcher.state === 'idle' && uploadFetcher.data) {
       setIsUploading(false);
       
-      if ('error' in uploadFetcher.data) {
-        alert('Failed to upload file: ' + uploadFetcher.data.error);
-      } else if ('url' in uploadFetcher.data) {
-        setLogoUrl(uploadFetcher.data.url);
+      if (uploadFetcher.data && typeof uploadFetcher.data === 'object' && 'error' in uploadFetcher.data) {
+        alert('Failed to upload file: ' + (uploadFetcher.data as { error: string }).error);
+      } else if (uploadFetcher.data && typeof uploadFetcher.data === 'object' && 'url' in uploadFetcher.data) {
+        const url = (uploadFetcher.data as { url: string }).url;
+        setLogoUrl(url);
         
         // Update the input field
         const input = document.getElementById('companyLogoUrl') as HTMLInputElement;
         if (input) {
-          input.value = uploadFetcher.data.url;
+          input.value = url;
         }
       }
     } else if (uploadFetcher.state === 'submitting') {

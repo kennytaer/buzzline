@@ -57,7 +57,12 @@ export async function loader(args: LoaderFunctionArgs) {
     return json({ 
       orgId, 
       contactLists: contactLists || [],
-      defaultSignature: {},
+      defaultSignature: {
+        salesPersonName: '',
+        salesPersonTitle: '',
+        salesPersonPhone: '',
+        companyLogoUrl: ''
+      },
       salesTeam: activeMembers
     });
   } catch (error) {
@@ -65,7 +70,12 @@ export async function loader(args: LoaderFunctionArgs) {
     return json({ 
       orgId, 
       contactLists: [],
-      defaultSignature: {},
+      defaultSignature: {
+        salesPersonName: '',
+        salesPersonTitle: '',
+        salesPersonPhone: '',
+        companyLogoUrl: ''
+      },
       salesTeam: []
     });
   }
@@ -301,7 +311,7 @@ export default function NewCampaign() {
               </div>
 
               <div className="sm:col-span-2">
-                <label className="block text-sm font-medium text-gray-700 mb-2">
+                <label className="block text-sm font-medium text-gray-700 mb-2 px-4">
                   Description
                 </label>
                 <textarea
@@ -803,10 +813,13 @@ export default function NewCampaign() {
                         contentEditable
                         className="p-4 min-h-[400px] outline-none"
                         style={{ minHeight: '400px' }}
-                        dangerouslySetInnerHTML={{ __html: emailContent }}
+                        suppressContentEditableWarning={true}
                         onInput={(e) => setEmailContent(e.currentTarget.innerHTML)}
-                        onBlur={(e) => setEmailContent(e.currentTarget.innerHTML)}
-                        onKeyUp={(e) => setEmailContent(e.currentTarget.innerHTML)}
+                        ref={(el) => {
+                          if (el && el.innerHTML !== emailContent) {
+                            el.innerHTML = emailContent;
+                          }
+                        }}
                       />
                     </div>
                   ) : (
