@@ -180,7 +180,7 @@ export default function SegmentView() {
           {/* Edit Segment Button - Only for dynamic segments */}
           {segment.type === 'dynamic' && (
             <a
-              href={`/dashboard/contacts/segments/${segment.id}/edit`}
+              href={`/dashboard/contacts/segments/new?editMode=true&segmentId=${segment.id}&segmentName=${encodeURIComponent(segment.name || '')}&segmentDescription=${encodeURIComponent(segment.description || '')}&filters=${encodeURIComponent(JSON.stringify(segment.filters || []))}`}
               className="inline-flex items-center px-4 py-2 border border-blue-300 shadow-sm text-sm font-medium rounded-md text-blue-700 bg-white hover:bg-blue-50"
             >
               <svg className="-ml-1 mr-2 h-5 w-5 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">

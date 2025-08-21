@@ -61,10 +61,26 @@ export async function loader(args: LoaderFunctionArgs) {
 
     const availableFields = [...standardFields, ...customFields];
 
-    return json({ orgId, availableFields, totalContacts: allContacts.length });
+    // Check for edit mode parameters
+    const url = new URL(args.request.url);
+    const editMode = url.searchParams.get('editMode') === 'true';
+    const editData = editMode ? {
+      segmentId: url.searchParams.get('segmentId'),
+      segmentName: url.searchParams.get('segmentName') || '',
+      segmentDescription: url.searchParams.get('segmentDescription') || '',
+      filters: url.searchParams.get('filters') ? JSON.parse(url.searchParams.get('filters')!) : []
+    } : null;
+
+    return json({ 
+      orgId, 
+      availableFields, 
+      totalContacts: allContacts.length,
+      editMode,
+      editData
+    });
   } catch (error) {
     console.error("Error loading segment builder:", error);
-    return json({ orgId, availableFields: [], totalContacts: 0 });
+    return json({ orgId, availableFields: [], totalContacts: 0, editMode: false, editData: null });
   }
 }
 
@@ -80,6 +96,7 @@ export async function action(args: ActionFunctionArgs) {
   const segmentName = formData.get("segmentName") as string;
   const segmentDescription = formData.get("segmentDescription") as string;
   const filtersJson = formData.get("filters") as string;
+  const editSegmentId = formData.get("editSegmentId") as string | null;
 
   if (!segmentName || !filtersJson) {
     return json({ error: "Segment name and filters are required" }, { status: 400 });
@@ -98,44 +115,98 @@ export async function action(args: ActionFunctionArgs) {
       return evaluateFilters(contact, filters);
     });
 
-    // Create segment
-    const segmentId = generateId();
     const matchingContactIds = matchingContacts.map(contact => contact.id);
     
-    console.log("DEBUG: Creating segment", {
-      segmentId,
-      segmentName,
-      matchingContacts: matchingContacts.length,
-      matchingContactIds,
-      filters
-    });
-    
-    await contactListService.createContactList(orgId, segmentId, {
-      name: segmentName,
-      description: segmentDescription,
-      filters,
-      type: 'dynamic', // Mark as dynamic segment vs static upload
-      contactCount: matchingContacts.length,
-      contactIds: matchingContactIds
-    });
+    if (editSegmentId) {
+      // Update existing segment
+      console.log("DEBUG: Updating segment", {
+        editSegmentId,
+        segmentName,
+        matchingContacts: matchingContacts.length,
+        matchingContactIds,
+        filters
+      });
 
-    // Update all matching contacts to include this segment
-    for (const contact of matchingContacts) {
-      const existingLists = contact.contactListIds || [];
-      if (!existingLists.includes(segmentId)) {
-        contact.contactListIds = [...existingLists, segmentId];
-        await contactService.updateContact(orgId, contact.id, contact);
+      // Update segment
+      await contactListService.updateContactList(orgId, editSegmentId, {
+        name: segmentName,
+        description: segmentDescription,
+        filters,
+        contactCount: matchingContacts.length,
+        contactIds: matchingContactIds,
+        lastRefreshed: new Date().toISOString()
+      });
+
+      // Update all contacts to reflect new segment membership
+      const existingSegment = await contactListService.getContactList(orgId, editSegmentId);
+      const previousContactIds = existingSegment?.contactIds || [];
+
+      // Remove segment from contacts no longer matching
+      for (const contactId of previousContactIds) {
+        if (!matchingContactIds.includes(contactId)) {
+          const contact = await contactService.getContact(orgId, contactId);
+          if (contact) {
+            contact.contactListIds = contact.contactListIds.filter((id: string) => id !== editSegmentId);
+            await contactService.updateContact(orgId, contactId, contact);
+          }
+        }
       }
-    }
 
-    return json({ 
-      success: true, 
-      segmentId,
-      matchedContacts: matchingContacts.length 
-    });
+      // Add segment to new matching contacts
+      for (const contact of matchingContacts) {
+        const existingLists = contact.contactListIds || [];
+        if (!existingLists.includes(editSegmentId)) {
+          contact.contactListIds = [...existingLists, editSegmentId];
+          await contactService.updateContact(orgId, contact.id, contact);
+        }
+      }
+
+      return json({ 
+        success: true, 
+        segmentId: editSegmentId,
+        matchedContacts: matchingContacts.length,
+        isEdit: true
+      });
+    } else {
+      // Create new segment
+      const segmentId = generateId();
+      
+      console.log("DEBUG: Creating segment", {
+        segmentId,
+        segmentName,
+        matchingContacts: matchingContacts.length,
+        matchingContactIds,
+        filters
+      });
+      
+      await contactListService.createContactList(orgId, segmentId, {
+        name: segmentName,
+        description: segmentDescription,
+        filters,
+        type: 'dynamic', // Mark as dynamic segment vs static upload
+        contactCount: matchingContacts.length,
+        contactIds: matchingContactIds
+      });
+
+      // Update all matching contacts to include this segment
+      for (const contact of matchingContacts) {
+        const existingLists = contact.contactListIds || [];
+        if (!existingLists.includes(segmentId)) {
+          contact.contactListIds = [...existingLists, segmentId];
+          await contactService.updateContact(orgId, contact.id, contact);
+        }
+      }
+
+      return json({ 
+        success: true, 
+        segmentId,
+        matchedContacts: matchingContacts.length,
+        isEdit: false
+      });
+    }
   } catch (error) {
-    console.error("Error creating segment:", error);
-    return json({ error: "Failed to create segment" }, { status: 500 });
+    console.error("Error processing segment:", error);
+    return json({ error: "Failed to process segment" }, { status: 500 });
   }
 }
 
@@ -209,12 +280,12 @@ function evaluateRule(contact: any, rule: FilterRule): boolean {
 }
 
 export default function NewSegment() {
-  const { availableFields, totalContacts } = useLoaderData<typeof loader>();
+  const { availableFields, totalContacts, editMode, editData } = useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>();
   
-  const [segmentName, setSegmentName] = useState("");
-  const [segmentDescription, setSegmentDescription] = useState("");
-  const [filters, setFilters] = useState<FilterRule[]>([]);
+  const [segmentName, setSegmentName] = useState(editData?.segmentName || "");
+  const [segmentDescription, setSegmentDescription] = useState(editData?.segmentDescription || "");
+  const [filters, setFilters] = useState<FilterRule[]>(editData?.filters || []);
   const [previewCount, setPreviewCount] = useState<number | null>(null);
 
   const operators = [
@@ -254,6 +325,7 @@ export default function NewSegment() {
   };
 
   if (actionData && 'success' in actionData && actionData.success) {
+    const isEdit = actionData && 'isEdit' in actionData && actionData.isEdit;
     return (
       <div className="px-4 py-6 sm:px-0">
         <div className="max-w-2xl mx-auto">
@@ -263,9 +335,13 @@ export default function NewSegment() {
                 <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
               </svg>
               <div className="ml-3">
-                <h3 className="text-lg font-medium text-green-800">Segment Created!</h3>
+                <h3 className="text-lg font-medium text-green-800">
+                  {isEdit ? 'Segment Updated!' : 'Segment Created!'}
+                </h3>
                 <div className="mt-2 text-sm text-green-700">
-                  <p>Successfully created segment "{segmentName}" with {actionData && 'matchedContacts' in actionData ? actionData.matchedContacts : 0} matching contacts.</p>
+                  <p>
+                    Successfully {isEdit ? 'updated' : 'created'} segment "{segmentName}" with {actionData && 'matchedContacts' in actionData ? actionData.matchedContacts : 0} matching contacts.
+                  </p>
                 </div>
                 <div className="mt-4">
                   <a
@@ -288,9 +364,14 @@ export default function NewSegment() {
       <div className="max-w-4xl mx-auto">
         <div className="md:flex md:items-center md:justify-between mb-6">
           <div className="flex-1 min-w-0">
-            <h1 className="text-2xl font-bold text-gray-900">Create New Segment</h1>
+            <h1 className="text-2xl font-bold text-gray-900">
+              {editMode ? `Edit Segment: ${editData?.segmentName}` : 'Create New Segment'}
+            </h1>
             <p className="mt-2 text-sm text-gray-500">
-              Create a dynamic segment by filtering your {totalContacts} contacts based on their properties.
+              {editMode 
+                ? `Update the logic for this dynamic segment. Changes will be applied to all ${totalContacts} contacts.`
+                : `Create a dynamic segment by filtering your ${totalContacts} contacts based on their properties.`
+              }
             </p>
           </div>
         </div>
@@ -303,6 +384,9 @@ export default function NewSegment() {
 
         <Form method="post" className="space-y-6">
           <input type="hidden" name="filters" value={JSON.stringify(filters)} />
+          {editMode && editData?.segmentId && (
+            <input type="hidden" name="editSegmentId" value={editData.segmentId} />
+          )}
           
           {/* Segment Details */}
           <div className="bg-white shadow rounded-lg p-6">
@@ -451,7 +535,10 @@ export default function NewSegment() {
           {/* Submit */}
           <div className="flex justify-end space-x-3">
             <a
-              href="/dashboard/contacts"
+              href={editMode && editData?.segmentId 
+                ? `/dashboard/contacts/segments/${editData.segmentId}` 
+                : "/dashboard/contacts"
+              }
               className="px-4 py-2 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50"
             >
               Cancel
@@ -461,7 +548,7 @@ export default function NewSegment() {
               disabled={!segmentName || filters.length === 0}
               className="px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed"
             >
-              Create Segment
+              {editMode ? 'Update Segment' : 'Create Segment'}
             </button>
           </div>
         </Form>
