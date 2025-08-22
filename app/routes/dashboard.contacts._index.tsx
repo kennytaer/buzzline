@@ -33,11 +33,45 @@ export async function loader(args: LoaderFunctionArgs) {
       campaignService.listCampaigns(orgId)
     ]);
 
+    // Calculate statistics for the stat cards
+    let stats = {
+      totalContacts: contactsData.totalContacts,
+      totalSegments: segments.length,
+      contactsWithPhone: 0,
+      contactsWithEmail: 0,
+      subscribedContacts: 0
+    };
+
+    // Only calculate detailed stats if we have contacts (avoid extra calls for empty state)
+    if (contactsData.totalContacts > 0) {
+      try {
+        // Get all contacts to calculate stats
+        const allContacts = await contactService.listContacts(orgId);
+        
+        stats.contactsWithPhone = allContacts.filter(contact => 
+          contact.phone && contact.phone.trim() !== ''
+        ).length;
+        
+        stats.contactsWithEmail = allContacts.filter(contact => 
+          contact.email && contact.email.trim() !== ''
+        ).length;
+        
+        stats.subscribedContacts = allContacts.filter(contact => 
+          !contact.optedOut
+        ).length;
+        
+      } catch (error) {
+        console.error('Failed to calculate contact stats:', error);
+        // Use fallback stats if calculation fails
+      }
+    }
+
     return json({ 
       orgId, 
       contacts: contactsData.contacts, 
       segments,
       campaigns: campaigns || [],
+      stats,
       pagination: {
         currentPage: contactsData.currentPage,
         totalPages: contactsData.totalPages,
@@ -56,6 +90,13 @@ export async function loader(args: LoaderFunctionArgs) {
       contacts: [], 
       segments: [],
       campaigns: [],
+      stats: {
+        totalContacts: 0,
+        totalSegments: 0,
+        contactsWithPhone: 0,
+        contactsWithEmail: 0,
+        subscribedContacts: 0
+      },
       pagination: { currentPage: 1, totalPages: 0, totalContacts: 0, limit: 50, hasNextPage: false, hasPrevPage: false },
       search: ""
     });
@@ -188,15 +229,13 @@ export async function action(args: ActionFunctionArgs) {
       const allSegments = await contactListService.listContactLists(orgId);
       console.log('📊 DEBUG: Found segments:', allSegments.length);
       
-      // Delete all contacts using direct KV operations (more efficient)
-      console.log('🗑️ DEBUG: Starting direct KV bulk deletion to avoid rate limits');
+      // Delete all contacts using KV prefix listing (most efficient approach)
+      console.log('🗑️ DEBUG: Starting prefix-based bulk deletion to avoid rate limits');
       
       let deletedCount = 0;
       let errorCount = 0;
       
       try {
-        // Use direct KV operations instead of service methods to minimize API calls
-        const contactService = getContactService(args.context);
         const main = args.context?.cloudflare?.env?.BUZZLINE_MAIN;
         const cache = args.context?.cloudflare?.env?.BUZZLINE_CACHE;
         
@@ -204,59 +243,63 @@ export async function action(args: ActionFunctionArgs) {
           throw new Error('KV namespaces not available');
         }
         
-        // Delete contacts directly from KV (much more efficient - 1 operation per contact)
-        const contactKeys = allContacts.map(contact => `org:${orgId}:contact:${contact.id}`);
-        console.log(`🗑️ DEBUG: Deleting ${contactKeys.length} contact keys directly from KV`);
+        // List all contact keys for this org using prefix (much more efficient than individual lookups)
+        console.log('🔍 DEBUG: Listing all contact keys by prefix');
+        const contactPrefix = `org:${orgId}:contact:`;
+        const contactKeysList = await main.list({ prefix: contactPrefix, limit: 1000 });
         
-        // Delete in smaller batches to stay under 1000 operation limit
-        const KV_BATCH_SIZE = 200; // Conservative batch size for KV operations
+        console.log(`🗑️ DEBUG: Found ${contactKeysList.keys.length} contact keys to delete`);
         
-        for (let i = 0; i < contactKeys.length; i += KV_BATCH_SIZE) {
-          const batch = contactKeys.slice(i, i + KV_BATCH_SIZE);
-          console.log(`🗑️ DEBUG: KV batch ${Math.floor(i / KV_BATCH_SIZE) + 1}/${Math.ceil(contactKeys.length / KV_BATCH_SIZE)} - ${batch.length} keys`);
+        if (contactKeysList.keys.length > 0) {
+          // Delete all contact keys in batches
+          const KV_BATCH_SIZE = 200;
+          const contactKeys = contactKeysList.keys.map(key => key.name);
           
-          await Promise.all(batch.map(async (key) => {
+          for (let i = 0; i < contactKeys.length; i += KV_BATCH_SIZE) {
+            const batch = contactKeys.slice(i, i + KV_BATCH_SIZE);
+            console.log(`🗑️ DEBUG: Deleting contact batch ${Math.floor(i / KV_BATCH_SIZE) + 1}/${Math.ceil(contactKeys.length / KV_BATCH_SIZE)} - ${batch.length} keys`);
+            
+            await Promise.all(batch.map(async (key) => {
+              try {
+                await main.delete(key);
+                deletedCount++;
+              } catch (error) {
+                console.error(`Failed to delete contact key ${key}:`, error);
+                errorCount++;
+              }
+            }));
+            
+            // Small delay between batches
+            if (i + KV_BATCH_SIZE < contactKeys.length) {
+              await new Promise(resolve => setTimeout(resolve, 50));
+            }
+          }
+        }
+        
+        // Clear all contact-related cache entries by prefix
+        console.log('🗑️ DEBUG: Clearing contact cache entries by prefix');
+        const cachePrefix = `org:${orgId}:contact`;
+        const cacheKeysList = await cache.list({ prefix: cachePrefix, limit: 100 });
+        
+        if (cacheKeysList.keys.length > 0) {
+          const cacheKeysToDelete = cacheKeysList.keys.map(key => key.name);
+          console.log(`🗑️ DEBUG: Found ${cacheKeysToDelete.length} cache keys to delete`);
+          
+          await Promise.all(cacheKeysToDelete.map(async (key) => {
             try {
-              await main.delete(key);
-              deletedCount++;
+              await cache.delete(key);
             } catch (error) {
-              console.error(`Failed to delete key ${key}:`, error);
-              errorCount++;
+              console.log(`Cache key ${key} not found or failed to delete:`, error);
             }
           }));
-          
-          // Small delay between batches
-          if (i + KV_BATCH_SIZE < contactKeys.length) {
-            await new Promise(resolve => setTimeout(resolve, 50));
-          }
         }
         
-        // Clear all contact-related cache entries
-        console.log('🗑️ DEBUG: Clearing contact caches');
-        const cacheKeys = [
-          `org:${orgId}:contact_meta`,
-          `org:${orgId}:contact_search`
-        ];
-        
-        // Add paginated cache keys (estimate up to 50 pages)
-        for (let page = 1; page <= 50; page++) {
-          cacheKeys.push(`org:${orgId}:contact_index:page_${page}`);
-        }
-        
-        await Promise.all(cacheKeys.map(async (key) => {
-          try {
-            await cache.delete(key);
-          } catch (error) {
-            console.log(`Cache key ${key} not found or failed to delete:`, error);
-          }
-        }));
-        
-        console.log('✅ DEBUG: Direct KV deletion complete');
+        console.log('✅ DEBUG: Prefix-based contact deletion complete');
         
       } catch (error) {
-        console.error('❌ DEBUG: Direct KV deletion failed, falling back to individual deletion:', error);
+        console.error('❌ DEBUG: Prefix-based deletion failed, falling back to service method:', error);
         
-        // Fallback to individual deletion with very small batches
+        // Fallback to service method deletion with very small batches
         const FALLBACK_BATCH_SIZE = 5;
         for (let i = 0; i < Math.min(allContacts.length, 50); i += FALLBACK_BATCH_SIZE) {
           const batch = allContacts.slice(i, i + FALLBACK_BATCH_SIZE);
@@ -264,6 +307,7 @@ export async function action(args: ActionFunctionArgs) {
           
           await Promise.all(batch.map(async (contact) => {
             try {
+              const contactService = getContactService(args.context);
               await contactService.deleteContact(orgId, contact.id);
               deletedCount++;
             } catch (error) {
@@ -279,17 +323,22 @@ export async function action(args: ActionFunctionArgs) {
         }
       }
       
-      // Delete all segments/contact lists using direct KV operations
-      console.log('🗑️ DEBUG: Starting segment deletion');
+      // Delete all segments/contact lists using prefix listing
+      console.log('🗑️ DEBUG: Starting segment deletion by prefix');
       let segmentsDeleted = 0;
       
-      if (allSegments.length > 0) {
-        try {
-          const main = args.context?.cloudflare?.env?.BUZZLINE_MAIN;
-          if (main) {
-            // Delete segments directly from KV
-            const segmentKeys = allSegments.map(segment => `org:${orgId}:contactlist:${segment.id}`);
-            console.log(`🗑️ DEBUG: Deleting ${segmentKeys.length} segment keys directly from KV`);
+      try {
+        const main = args.context?.cloudflare?.env?.BUZZLINE_MAIN;
+        if (main) {
+          // List all segment/contactlist keys for this org using prefix
+          console.log('🔍 DEBUG: Listing all segment keys by prefix');
+          const segmentPrefix = `org:${orgId}:contactlist:`;
+          const segmentKeysList = await main.list({ prefix: segmentPrefix, limit: 100 });
+          
+          console.log(`🗑️ DEBUG: Found ${segmentKeysList.keys.length} segment keys to delete`);
+          
+          if (segmentKeysList.keys.length > 0) {
+            const segmentKeys = segmentKeysList.keys.map(key => key.name);
             
             await Promise.all(segmentKeys.map(async (key) => {
               try {
@@ -299,30 +348,30 @@ export async function action(args: ActionFunctionArgs) {
                 console.error(`Failed to delete segment key ${key}:`, error);
               }
             }));
-            
-            // Also delete custom fields for the org
+          }
+          
+          // Also delete custom fields for the org
+          try {
+            await main.delete(`org:${orgId}:custom_fields`);
+            console.log('🗑️ DEBUG: Deleted custom fields');
+          } catch (error) {
+            console.log('Custom fields key not found or failed to delete:', error);
+          }
+          
+        } else {
+          // Fallback to service method using the segments we already fetched
+          for (const segment of allSegments) {
             try {
-              await main.delete(`org:${orgId}:custom_fields`);
-              console.log('🗑️ DEBUG: Deleted custom fields');
+              await contactListService.deleteContactList(orgId, segment.id);
+              console.log(`🗑️ DEBUG: Deleted segment: ${segment.name}`);
+              segmentsDeleted++;
             } catch (error) {
-              console.log('Custom fields key not found or failed to delete:', error);
-            }
-            
-          } else {
-            // Fallback to service method
-            for (const segment of allSegments) {
-              try {
-                await contactListService.deleteContactList(orgId, segment.id);
-                console.log(`🗑️ DEBUG: Deleted segment: ${segment.name}`);
-                segmentsDeleted++;
-              } catch (error) {
-                console.error(`Failed to delete segment ${segment.id}:`, error);
-              }
+              console.error(`Failed to delete segment ${segment.id}:`, error);
             }
           }
-        } catch (error) {
-          console.error('Segment deletion error:', error);
         }
+      } catch (error) {
+        console.error('Segment deletion error:', error);
       }
       
       console.log('✅ DEBUG: Cleanup complete:', {
@@ -349,7 +398,7 @@ export async function action(args: ActionFunctionArgs) {
 }
 
 export default function ContactsIndex() {
-  const { contacts, segments, campaigns, pagination, search } = useLoaderData<typeof loader>();
+  const { contacts, segments, campaigns, stats, pagination, search } = useLoaderData<typeof loader>();
   const fetcher = useFetcher();
   const revalidator = useRevalidator();
   const [selectedContact, setSelectedContact] = useState<any>(null);
@@ -398,6 +447,99 @@ export default function ContactsIndex() {
 
   return (
     <div className="space-y-6">
+
+      {/* Stats Cards */}
+      <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-5">
+        <div className="bg-white overflow-hidden shadow rounded-lg">
+          <div className="p-5">
+            <div className="flex items-center">
+              <div className="flex-shrink-0">
+                <svg className="h-6 w-6 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
+                </svg>
+              </div>
+              <div className="ml-5 w-0 flex-1">
+                <dl>
+                  <dt className="text-sm font-medium text-gray-500 truncate">Total Contacts</dt>
+                  <dd className="text-lg font-medium text-gray-900">{stats?.totalContacts || 0}</dd>
+                </dl>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="bg-white overflow-hidden shadow rounded-lg">
+          <div className="p-5">
+            <div className="flex items-center">
+              <div className="flex-shrink-0">
+                <svg className="h-6 w-6 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
+                </svg>
+              </div>
+              <div className="ml-5 w-0 flex-1">
+                <dl>
+                  <dt className="text-sm font-medium text-gray-500 truncate">Segments</dt>
+                  <dd className="text-lg font-medium text-gray-900">{stats?.totalSegments || 0}</dd>
+                </dl>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="bg-white overflow-hidden shadow rounded-lg">
+          <div className="p-5">
+            <div className="flex items-center">
+              <div className="flex-shrink-0">
+                <svg className="h-6 w-6 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" />
+                </svg>
+              </div>
+              <div className="ml-5 w-0 flex-1">
+                <dl>
+                  <dt className="text-sm font-medium text-gray-500 truncate">With Phone</dt>
+                  <dd className="text-lg font-medium text-gray-900">{stats?.contactsWithPhone || 0}</dd>
+                </dl>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="bg-white overflow-hidden shadow rounded-lg">
+          <div className="p-5">
+            <div className="flex items-center">
+              <div className="flex-shrink-0">
+                <svg className="h-6 w-6 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 12a4 4 0 10-8 0 4 4 0 008 0zm0 0v1.5a2.5 2.5 0 005 0V12a9 9 0 10-9 9m4.5-1.206a8.959 8.959 0 01-4.5 1.207" />
+                </svg>
+              </div>
+              <div className="ml-5 w-0 flex-1">
+                <dl>
+                  <dt className="text-sm font-medium text-gray-500 truncate">With Email</dt>
+                  <dd className="text-lg font-medium text-gray-900">{stats?.contactsWithEmail || 0}</dd>
+                </dl>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="bg-white overflow-hidden shadow rounded-lg">
+          <div className="p-5">
+            <div className="flex items-center">
+              <div className="flex-shrink-0">
+                <svg className="h-6 w-6 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+              </div>
+              <div className="ml-5 w-0 flex-1">
+                <dl>
+                  <dt className="text-sm font-medium text-gray-500 truncate">Subscribed</dt>
+                  <dd className="text-lg font-medium text-green-600">{stats?.subscribedContacts || 0}</dd>
+                </dl>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
 
       {/* Search Bar */}
       <div className="max-w-lg">
