@@ -425,9 +425,9 @@ export default function OrganizationSettings() {
 
             {/* Signature Preview */}
             {settings.emailSignature?.salesPersonName && (
-              <div className="mt-6 p-4 bg-gray-50 dark:bg-gray-800 rounded-lg">
-                <h4 className="text-sm font-medium text-gray-900 dark:text-gray-100 mb-2">Preview:</h4>
-                <div className="text-sm text-gray-900 dark:text-gray-100">
+              <div className="mt-6 p-4 bg-gray-50 rounded-lg">
+                <h4 className="text-sm font-medium text-gray-900 mb-2">Preview:</h4>
+                <div className="p-4 bg-white border rounded text-sm text-gray-900">
                   <br/>
                   <p className="m-0">Chat soon,</p>
                   <p className="m-0"><strong>{settings.emailSignature.salesPersonName}</strong></p>
@@ -437,12 +437,12 @@ export default function OrganizationSettings() {
                   <img 
                     src={logoUrl || 'https://imagedelivery.net/fdADyrHW5AIzXwUyxun8dw/b95b1ebf-081b-454a-41f0-4ef26623c400/public'} 
                     width="180" 
-                    className="block my-0 -ml-2" 
+                    className="block my-0 -ml-2"
                     alt="Company Logo"
                   />
-                  <p className="block my-1 text-gray-600 dark:text-gray-400">
+                  <p className="block my-1 text-gray-600">
                     No longer want to receive these types of emails? 
-                    <a href="#" className="font-semibold text-primary-600 dark:text-primary-400 hover:text-primary-800 dark:hover:text-primary-300">
+                    <a href="#" className="font-semibold text-blue-600">
                       Unsubscribe here.
                     </a> 
                     (Automatic unsubscribe links will be added to each email)
