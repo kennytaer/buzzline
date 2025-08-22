@@ -167,6 +167,77 @@ export async function action(args: ActionFunctionArgs) {
     }
   }
 
+  if (intent === "deleteAllContacts") {
+    console.log('🗑️ DEBUG: deleteAllContacts intent received');
+    
+    try {
+      const contactService = getContactService(args.context);
+      const contactListService = getContactListService(args.context);
+      
+      console.log('🔍 DEBUG: Fetching all contacts for org:', orgId);
+      
+      // Get all contacts for the organization
+      const allContacts = await contactService.listContacts(orgId);
+      console.log('📊 DEBUG: Found contacts:', allContacts.length);
+      
+      if (allContacts.length === 0) {
+        return json({ success: true, message: "No contacts found to delete", deletedCount: 0 });
+      }
+      
+      // Get all contact lists/segments for the organization
+      const allSegments = await contactListService.listContactLists(orgId);
+      console.log('📊 DEBUG: Found segments:', allSegments.length);
+      
+      // Delete all contacts in batches
+      const BATCH_SIZE = 25;
+      let deletedCount = 0;
+      let errorCount = 0;
+      
+      for (let i = 0; i < allContacts.length; i += BATCH_SIZE) {
+        const batch = allContacts.slice(i, i + BATCH_SIZE);
+        console.log(`🗑️ DEBUG: Deleting batch ${Math.floor(i / BATCH_SIZE) + 1}/${Math.ceil(allContacts.length / BATCH_SIZE)}`);
+        
+        await Promise.all(batch.map(async (contact) => {
+          try {
+            await contactService.deleteContact(orgId, contact.id);
+            deletedCount++;
+          } catch (error) {
+            console.error(`Failed to delete contact ${contact.id}:`, error);
+            errorCount++;
+          }
+        }));
+      }
+      
+      // Delete all segments/contact lists
+      for (const segment of allSegments) {
+        try {
+          await contactListService.deleteContactList(orgId, segment.id);
+          console.log(`🗑️ DEBUG: Deleted segment: ${segment.name}`);
+        } catch (error) {
+          console.error(`Failed to delete segment ${segment.id}:`, error);
+        }
+      }
+      
+      console.log('✅ DEBUG: Cleanup complete:', {
+        contactsDeleted: deletedCount,
+        contactErrors: errorCount,
+        segmentsDeleted: allSegments.length
+      });
+      
+      return json({ 
+        success: true, 
+        message: `Successfully deleted ${deletedCount} contacts and ${allSegments.length} segments${errorCount > 0 ? ` (${errorCount} errors)` : ''}`,
+        deletedCount,
+        errorCount,
+        segmentsDeleted: allSegments.length
+      });
+      
+    } catch (error) {
+      console.error("Error deleting all contacts:", error);
+      return json({ success: false, message: "Failed to delete contacts" }, { status: 500 });
+    }
+  }
+
   return json({ success: false, message: "Invalid request" }, { status: 400 });
 }
 
@@ -246,6 +317,45 @@ export default function ContactsIndex() {
             </a>
           )}
         </form>
+      </div>
+
+      {/* Debug Section - Only show in development */}
+      <div className="max-w-lg">
+        <div className="rounded-lg bg-red-50 border border-red-200 p-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <h3 className="text-sm font-medium text-red-800">Debug Tools</h3>
+              <p className="text-xs text-red-600 mt-1">Development only - delete all contacts and segments</p>
+            </div>
+            <fetcher.Form method="post">
+              <input type="hidden" name="intent" value="deleteAllContacts" />
+              <button
+                type="submit"
+                disabled={isLoading}
+                className="inline-flex items-center rounded-md bg-red-600 px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-red-500 disabled:bg-gray-400 disabled:cursor-not-allowed"
+                onClick={(e) => {
+                  if (!confirm('⚠️ This will permanently delete ALL contacts and segments for your organization. Are you sure?')) {
+                    e.preventDefault();
+                  }
+                }}
+              >
+                {isLoading ? (
+                  <>
+                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                    Deleting...
+                  </>
+                ) : (
+                  <>
+                    <svg className="h-4 w-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                    </svg>
+                    Delete All
+                  </>
+                )}
+              </button>
+            </fetcher.Form>
+          </div>
+        </div>
       </div>
 
       {/* Success/Error Messages */}

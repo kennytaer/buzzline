@@ -377,7 +377,6 @@ export async function action(args: ActionFunctionArgs) {
             id: contactId,
             data: contact
           });
-          contactIds.push(contactId);
         }
       }
 
@@ -406,6 +405,9 @@ export async function action(args: ActionFunctionArgs) {
             bulkCreateTimeMs: bulkCreateTime,
             avgCreateTimePerContact: Math.round(bulkCreateTime / newContacts.length * 100) / 100
           });
+          
+          // Only add successfully created contact IDs
+          contactIds.push(...bulkResults.created);
           
           // Handle any bulk creation errors
           for (const error of bulkResults.errors) {
@@ -483,7 +485,11 @@ export async function action(args: ActionFunctionArgs) {
         newContactIds: contactIds.length,
         duplicatesUpdated: duplicatesUpdated.length,
         skippedDuplicates: skippedDuplicates.length,
-        totalContactsToAssign: allContactIds.length
+        totalContactsToAssign: allContactIds.length,
+        allContactIdsSample: allContactIds.slice(0, 5),
+        contactIdsSample: contactIds.slice(0, 5),
+        duplicatesUpdatedSample: duplicatesUpdated.slice(0, 5),
+        skippedDuplicatesSample: skippedDuplicates.slice(0, 5)
       });
       
       if (allContactIds.length > 0) {
@@ -495,6 +501,17 @@ export async function action(args: ActionFunctionArgs) {
           console.log("✅ CSV UPLOAD DEBUG - Contact list assignment successful:", {
             contactsAssigned: allContactIds.length,
             listAssignmentTimeMs: listAssignmentTime
+          });
+          
+          // Verify the assignment worked by reading the segment back
+          const updatedSegment = await contactListService.getContactList(orgId, listId);
+          console.log("🔍 CSV UPLOAD DEBUG - Verifying segment assignment:", {
+            listId,
+            segmentFound: !!updatedSegment,
+            segmentContactIdsCount: updatedSegment?.contactIds?.length || 0,
+            segmentName: updatedSegment?.name || 'unknown',
+            expectedContactsCount: allContactIds.length,
+            assignmentWorked: (updatedSegment?.contactIds?.length || 0) === allContactIds.length
           });
         } catch (error) {
           console.error("❌ CSV UPLOAD DEBUG - Contact list assignment failed:", {

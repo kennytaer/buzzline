@@ -69,12 +69,44 @@ export class ContactListService {
   }
 
   async updateContactList(orgId: string, listId: string, updates: any) {
+    console.log("🔍 CONTACT LIST UPDATE DEBUG - Starting update:", {
+      orgId,
+      listId,
+      updatesKeys: Object.keys(updates),
+      contactIdsCount: updates.contactIds ? updates.contactIds.length : 'not provided'
+    });
+    
     const contactList = await this.getContactList(orgId, listId);
     if (contactList) {
+      console.log("✅ CONTACT LIST UPDATE DEBUG - Found existing list:", {
+        listId,
+        currentContactIds: contactList.contactIds ? contactList.contactIds.length : 'not set',
+        listName: contactList.name
+      });
+      
       const updated = { ...contactList, ...updates, updatedAt: new Date().toISOString() };
       const key = this.getContactListKey(orgId, listId);
+      
+      console.log("🔍 CONTACT LIST UPDATE DEBUG - Saving updated list:", {
+        listId,
+        newContactIdsCount: updated.contactIds ? updated.contactIds.length : 'not set',
+        key,
+        updatedFields: Object.keys(updates)
+      });
+      
       await this.main.put(key, JSON.stringify(updated));
+      
+      console.log("✅ CONTACT LIST UPDATE DEBUG - Update complete:", {
+        listId,
+        finalContactIdsCount: updated.contactIds ? updated.contactIds.length : 'not set'
+      });
+      
       return updated;
+    } else {
+      console.error("❌ CONTACT LIST UPDATE DEBUG - Contact list not found:", {
+        orgId,
+        listId
+      });
     }
     return null;
   }
