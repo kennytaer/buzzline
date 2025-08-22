@@ -293,11 +293,11 @@ export default function NewCampaign() {
             </>
           )}
           {/* Basic Information */}
-          <div className="bg-white shadow rounded-lg p-6">
+          <div className="card p-6">
             <h2 className="text-lg font-medium mb-6">Campaign Details</h2>
             <div className="grid grid-cols-1 gap-6 sm:grid-cols-2">
               <div className="sm:col-span-2">
-                <label className="block text-sm font-medium text-gray-700 mb-2">
+                <label className="form-label mb-2">
                   Campaign Name *
                 </label>
                 <input
@@ -305,33 +305,33 @@ export default function NewCampaign() {
                   name="name"
                   required
                   defaultValue={searchParams.get('name') || ''}
-                  className="block w-full rounded-md border-accent-300 shadow-sm focus:border-primary-500 focus:ring-primary-500 px-3 py-2"
+                  className="form-input"
                   placeholder="e.g., Welcome Series, Monthly Newsletter"
                 />
               </div>
 
               <div className="sm:col-span-2">
-                <label className="block text-sm font-medium text-gray-700 mb-2 px-4">
+                <label className="form-label mb-2">
                   Description
                 </label>
                 <textarea
                   name="description"
                   rows={3}
                   defaultValue={searchParams.get('description') || ''}
-                  className="block w-full rounded-md border-accent-300 shadow-sm focus:border-primary-500 focus:ring-primary-500"
+                  className="form-textarea"
                   placeholder="Brief description of this campaign"
                 />
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
+                <label className="form-label mb-2">
                   Campaign Type *
                 </label>
                 <select
                   name="type"
                   value={campaignType}
                   onChange={(e) => setCampaignType(e.target.value as "email" | "sms" | "both")}
-                  className="block w-full rounded-md border-accent-300 shadow-sm focus:border-primary-500 focus:ring-primary-500"
+                  className="form-select"
                   required
                 >
                   <option value="email">Email Only</option>
@@ -341,36 +341,36 @@ export default function NewCampaign() {
               </div>
 
               <div className="sm:col-span-2">
-                <label className="block text-sm font-medium text-gray-700 mb-2">
+                <label className="form-label mb-2">
                   Campaign Mode *
                 </label>
                 <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                  <label className="flex items-center space-x-3 p-3 border border-gray-300 rounded-md cursor-pointer hover:bg-gray-50">
+                  <label className="flex items-center space-x-3 p-3 border border-gray-300 dark:border-gray-600 rounded-md cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700">
                     <input
                       type="radio"
                       name="campaignMode"
                       value="company"
                       checked={campaignMode === "company"}
                       onChange={(e) => setCampaignMode(e.target.value as "sales" | "company")}
-                      className="h-4 w-4 text-primary-600 focus:ring-primary-500 border-gray-300"
+                      className="h-4 w-4 text-primary-600 focus:ring-primary-500 border-gray-300 dark:border-gray-600"
                     />
                     <div>
-                      <div className="text-sm font-medium text-gray-900">Company Campaign</div>
-                      <div className="text-sm text-gray-500">Static sender info, sent on behalf of the company</div>
+                      <div className="text-sm font-medium text-gray-900 dark:text-gray-100">Company Campaign</div>
+                      <div className="text-sm text-gray-500 dark:text-gray-400">Static sender info, sent on behalf of the company</div>
                     </div>
                   </label>
-                  <label className="flex items-center space-x-3 p-3 border border-gray-300 rounded-md cursor-pointer hover:bg-gray-50">
+                  <label className="flex items-center space-x-3 p-3 border border-gray-300 dark:border-gray-600 rounded-md cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700">
                     <input
                       type="radio"
                       name="campaignMode"
                       value="sales"
                       checked={campaignMode === "sales"}
                       onChange={(e) => setCampaignMode(e.target.value as "sales" | "company")}
-                      className="h-4 w-4 text-primary-600 focus:ring-primary-500 border-gray-300"
+                      className="h-4 w-4 text-primary-600 focus:ring-primary-500 border-gray-300 dark:border-gray-600"
                     />
                     <div>
-                      <div className="text-sm font-medium text-gray-900">Sales Team Campaign</div>
-                      <div className="text-sm text-gray-500">Round-robin through sales team members</div>
+                      <div className="text-sm font-medium text-gray-900 dark:text-gray-100">Sales Team Campaign</div>
+                      <div className="text-sm text-gray-500 dark:text-gray-400">Round-robin through sales team members</div>
                     </div>
                   </label>
                 </div>
@@ -380,12 +380,12 @@ export default function NewCampaign() {
 
           {/* Sales Team Configuration */}
           {campaignMode === "sales" && (
-            <div className="bg-white shadow rounded-lg p-6">
+            <div className="card p-6">
               <h2 className="text-lg font-medium mb-6">Sales Team Configuration</h2>
               
               {salesTeam.length === 0 ? (
-                <div className="text-center py-6 bg-gray-50 rounded-lg">
-                  <p className="text-sm text-gray-500 mb-3">No sales team members available.</p>
+                <div className="text-center py-6 bg-gray-50 dark:bg-gray-700 rounded-lg">
+                  <p className="text-sm text-gray-500 dark:text-gray-400 mb-3">No sales team members available.</p>
                   <a
                     href="/dashboard/team"
                     className="text-primary-600 hover:text-primary-800 text-sm font-medium"
@@ -401,34 +401,34 @@ export default function NewCampaign() {
                         type="checkbox"
                         name="useRoundRobin"
                         defaultChecked
-                        className="h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500"
+                        className="h-4 w-4 rounded border-gray-300 dark:border-gray-600 text-primary-600 focus:ring-primary-500"
                       />
-                      <span className="text-sm font-medium text-gray-700">
+                      <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
                         Use round-robin rotation through all active team members
                       </span>
                     </label>
-                    <p className="text-sm text-gray-500 mt-1 ml-7">
+                    <p className="text-sm text-gray-500 dark:text-gray-400 mt-1 ml-7">
                       Each email will cycle through team members automatically, ensuring equal distribution.
                     </p>
                   </div>
 
                   <div className="border-t pt-4">
-                    <h3 className="text-sm font-medium text-gray-700 mb-3">Active Sales Team Members ({salesTeam.length})</h3>
+                    <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">Active Sales Team Members ({salesTeam.length})</h3>
                     <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                       {salesTeam.map((member) => (
-                        <div key={member.id} className="flex items-center space-x-3 p-3 bg-gray-50 rounded-md">
+                        <div key={member.id} className="flex items-center space-x-3 p-3 bg-gray-50 dark:bg-gray-700 rounded-md">
                           <input
                             type="checkbox"
                             name="selectedMembers"
                             value={member.id}
                             defaultChecked
-                            className="h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500"
+                            className="h-4 w-4 rounded border-gray-300 dark:border-gray-600 text-primary-600 focus:ring-primary-500"
                           />
                           <div className="flex-1">
-                            <div className="text-sm font-medium text-gray-900">
+                            <div className="text-sm font-medium text-gray-900 dark:text-gray-100">
                               {member.firstName} {member.lastName}
                             </div>
-                            <div className="text-sm text-gray-500">
+                            <div className="text-sm text-gray-500 dark:text-gray-400">
                               {member.title && `${member.title} • `}
                               {member.email}
                             </div>
@@ -443,15 +443,15 @@ export default function NewCampaign() {
           )}
 
           {/* Contact Lists */}
-          <div className="bg-white shadow rounded-lg p-6">
+          <div className="card p-6">
             <h2 className="text-lg font-medium mb-6">Target Audience</h2>
-            <label className="block text-sm font-medium text-gray-700 mb-4">
+            <label className="form-label mb-4">
               Select Contact Lists *
             </label>
             
             {contactLists.length === 0 ? (
-              <div className="text-center py-6 bg-gray-50 rounded-lg">
-                <p className="text-sm text-gray-500 mb-3">No contact lists available.</p>
+              <div className="text-center py-6 bg-gray-50 dark:bg-gray-700 rounded-lg">
+                <p className="text-sm text-gray-500 dark:text-gray-400 mb-3">No contact lists available.</p>
                 <a
                   href="/dashboard/contacts/upload"
                   className="text-primary-600 hover:text-primary-800 text-sm font-medium"
@@ -475,11 +475,11 @@ export default function NewCampaign() {
                           setSelectedLists(prev => prev.filter(id => id !== list.id));
                         }
                       }}
-                      className="h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500"
+                      className="h-4 w-4 rounded border-gray-300 dark:border-gray-600 text-primary-600 focus:ring-primary-500"
                     />
                     <div className="flex-1">
-                      <div className="text-sm font-medium text-gray-900">{list.name}</div>
-                      <div className="text-sm text-gray-500">
+                      <div className="text-sm font-medium text-gray-900 dark:text-gray-100">{list.name}</div>
+                      <div className="text-sm text-gray-500 dark:text-gray-400">
                         {list.contactCount || 0} contacts
                         {list.description && ` • ${list.description}`}
                       </div>
@@ -492,26 +492,26 @@ export default function NewCampaign() {
 
           {/* Email Template */}
           {(campaignType === "email" || campaignType === "both") && (
-            <div className="bg-white shadow rounded-lg p-6">
+            <div className="card p-6">
               <h2 className="text-lg font-medium mb-6">Email Template</h2>
               <div className="space-y-6">
                 {campaignMode === "company" && (
                   <div className="grid grid-cols-1 gap-6 sm:grid-cols-2">
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                      <label className="form-label mb-2">
                         From Name
                       </label>
                       <input
                         type="text"
                         name="fromName"
                         defaultValue={searchParams.get('fromName') || ''}
-                        className="block w-full rounded-md border-accent-300 shadow-sm focus:border-primary-500 focus:ring-primary-500"
+                        className="form-input"
                         placeholder="Your Business Name"
                       />
                     </div>
                     
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                      <label className="form-label mb-2">
                         From Email *
                       </label>
                       <input
@@ -519,7 +519,7 @@ export default function NewCampaign() {
                         name="fromEmail"
                         required={campaignMode === "company" && (campaignType === "email" || campaignType === "both")}
                         defaultValue={searchParams.get('fromEmail') || ''}
-                        className="block w-full rounded-md border-accent-300 shadow-sm focus:border-primary-500 focus:ring-primary-500"
+                        className="form-input"
                         placeholder="hello@yourcompany.com"
                       />
                     </div>
@@ -535,7 +535,7 @@ export default function NewCampaign() {
                 )}
 
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                  <label className="form-label mb-2">
                     Subject Line *
                   </label>
                   <input
@@ -543,7 +543,7 @@ export default function NewCampaign() {
                     name="emailSubject"
                     required={campaignType === "email" || campaignType === "both"}
                     defaultValue={searchParams.get('emailSubject') || ''}
-                    className="block w-full rounded-md border-accent-300 shadow-sm focus:border-primary-500 focus:ring-primary-500"
+                    className="form-input"
                     placeholder="Welcome to our newsletter!"
                   />
                 </div>
@@ -579,7 +579,7 @@ export default function NewCampaign() {
                 {/* Team Member Selector - Only for Company campaigns */}
                 {campaignMode === "company" && (
                   <div className="mb-6">
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                    <label className="form-label mb-2">
                       Select Team Member for Signature (Optional)
                     </label>
                     <select
@@ -598,7 +598,7 @@ export default function NewCampaign() {
                           if (phoneInput) phoneInput.value = member.phone || '';
                         }
                       }}
-                      className="block w-full rounded-md border-accent-300 shadow-sm focus:border-primary-500 focus:ring-primary-500"
+                      className="form-select"
                     >
                       <option value="">Use organization default signature</option>
                       {salesTeam.map((member) => (
@@ -618,7 +618,7 @@ export default function NewCampaign() {
 
                 <div>
                   <div className="flex items-center justify-between mb-2">
-                    <label className="block text-sm font-medium text-gray-700">
+                    <label className="form-label">
                       Email Content *
                     </label>
                     <div className="flex items-center space-x-2">
@@ -677,14 +677,14 @@ export default function NewCampaign() {
                   </div>
 
                   {emailEditorMode === "visual" ? (
-                    <div className="border border-gray-300 rounded-md">
-                      <div className="border-b border-gray-200 bg-gray-50 p-2">
+                    <div className="border border-gray-300 dark:border-gray-600 rounded-md">
+                      <div className="border-b border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 p-2">
                         <div className="flex flex-wrap gap-2">
                           {/* Text Formatting */}
                           <div className="flex gap-1">
                             <button
                               type="button"
-                              className="px-3 py-1 border border-gray-300 rounded text-sm hover:bg-gray-100 font-bold"
+                              className="px-3 py-1 border border-gray-300 dark:border-gray-600 rounded text-sm hover:bg-gray-100 dark:hover:bg-gray-600 font-bold text-gray-900 dark:text-gray-100"
                               onClick={() => executeCommand('bold')}
                               title="Bold"
                             >
@@ -692,7 +692,7 @@ export default function NewCampaign() {
                             </button>
                             <button
                               type="button"
-                              className="px-3 py-1 border border-gray-300 rounded text-sm hover:bg-gray-100 italic"
+                              className="px-3 py-1 border border-gray-300 dark:border-gray-600 rounded text-sm hover:bg-gray-100 dark:hover:bg-gray-600 italic text-gray-900 dark:text-gray-100"
                               onClick={() => executeCommand('italic')}
                               title="Italic"
                             >
@@ -700,7 +700,7 @@ export default function NewCampaign() {
                             </button>
                             <button
                               type="button"
-                              className="px-3 py-1 border border-gray-300 rounded text-sm hover:bg-gray-100 underline"
+                              className="px-3 py-1 border border-gray-300 dark:border-gray-600 rounded text-sm hover:bg-gray-100 dark:hover:bg-gray-600 underline text-gray-900 dark:text-gray-100"
                               onClick={() => executeCommand('underline')}
                               title="Underline"
                             >
@@ -711,7 +711,7 @@ export default function NewCampaign() {
                           {/* Font Size */}
                           <div className="flex gap-1">
                             <select
-                              className="px-2 py-1 border border-gray-300 rounded text-xs"
+                              className="px-2 py-1 border border-gray-300 dark:border-gray-600 rounded text-xs bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
                               onChange={(e) => {
                                 if (e.target.value) {
                                   executeCommand('fontSize', e.target.value);
@@ -734,7 +734,7 @@ export default function NewCampaign() {
                           <div className="flex gap-1">
                             <button
                               type="button"
-                              className="px-2 py-1 border border-gray-300 rounded text-sm hover:bg-gray-100"
+                              className="px-2 py-1 border border-gray-300 dark:border-gray-600 rounded text-sm hover:bg-gray-100 dark:hover:bg-gray-600 text-gray-900 dark:text-gray-100"
                               onClick={() => executeCommand('justifyLeft')}
                               title="Align Left"
                             >
@@ -744,7 +744,7 @@ export default function NewCampaign() {
                             </button>
                             <button
                               type="button"
-                              className="px-2 py-1 border border-gray-300 rounded text-sm hover:bg-gray-100"
+                              className="px-2 py-1 border border-gray-300 dark:border-gray-600 rounded text-sm hover:bg-gray-100 dark:hover:bg-gray-600 text-gray-900 dark:text-gray-100"
                               onClick={() => executeCommand('justifyCenter')}
                               title="Align Center"
                             >
@@ -754,7 +754,7 @@ export default function NewCampaign() {
                             </button>
                             <button
                               type="button"
-                              className="px-2 py-1 border border-gray-300 rounded text-sm hover:bg-gray-100"
+                              className="px-2 py-1 border border-gray-300 dark:border-gray-600 rounded text-sm hover:bg-gray-100 dark:hover:bg-gray-600 text-gray-900 dark:text-gray-100"
                               onClick={() => executeCommand('justifyRight')}
                               title="Align Right"
                             >
@@ -764,7 +764,7 @@ export default function NewCampaign() {
                             </button>
                             <button
                               type="button"
-                              className="px-2 py-1 border border-gray-300 rounded text-sm hover:bg-gray-100"
+                              className="px-2 py-1 border border-gray-300 dark:border-gray-600 rounded text-sm hover:bg-gray-100 dark:hover:bg-gray-600 text-gray-900 dark:text-gray-100"
                               onClick={() => executeCommand('justifyFull')}
                               title="Justify"
                             >
@@ -778,7 +778,7 @@ export default function NewCampaign() {
                           <div className="flex gap-1">
                             <button
                               type="button"
-                              className="px-2 py-1 border border-gray-300 rounded text-sm hover:bg-gray-100"
+                              className="px-2 py-1 border border-gray-300 dark:border-gray-600 rounded text-sm hover:bg-gray-100 dark:hover:bg-gray-600 text-gray-900 dark:text-gray-100"
                               onClick={() => executeCommand('insertUnorderedList')}
                               title="Bullet List"
                             >
@@ -788,7 +788,7 @@ export default function NewCampaign() {
                             </button>
                             <button
                               type="button"
-                              className="px-2 py-1 border border-gray-300 rounded text-sm hover:bg-gray-100"
+                              className="px-2 py-1 border border-gray-300 dark:border-gray-600 rounded text-sm hover:bg-gray-100 dark:hover:bg-gray-600 text-gray-900 dark:text-gray-100"
                               onClick={() => executeCommand('insertOrderedList')}
                               title="Numbered List"
                             >
@@ -802,7 +802,7 @@ export default function NewCampaign() {
                           <div className="flex gap-1">
                             <input
                               type="color"
-                              className="w-8 h-8 border border-gray-300 rounded cursor-pointer"
+                              className="w-8 h-8 border border-gray-300 dark:border-gray-600 rounded cursor-pointer"
                               onChange={(e) => executeCommand('foreColor', e.target.value)}
                               title="Text Color"
                             />
@@ -811,7 +811,7 @@ export default function NewCampaign() {
                       </div>
                       <div
                         contentEditable
-                        className="p-4 min-h-[400px] outline-none"
+                        className="p-4 min-h-[400px] outline-none bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
                         style={{ minHeight: '400px' }}
                         suppressContentEditableWarning={true}
                         onInput={(e) => setEmailContent(e.currentTarget.innerHTML)}
@@ -823,14 +823,14 @@ export default function NewCampaign() {
                       />
                     </div>
                   ) : (
-                    <div className="border border-gray-300 rounded-md">
-                      <div className="border-b border-gray-200 bg-gray-50 p-2">
-                        <div className="text-sm text-gray-600">
+                    <div className="border border-gray-300 dark:border-gray-600 rounded-md">
+                      <div className="border-b border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 p-2">
+                        <div className="text-sm text-gray-600 dark:text-gray-300">
                           HTML Editor - Write your email using HTML code
                         </div>
                       </div>
                       <textarea
-                        className="w-full p-4 min-h-[400px] font-mono text-sm bg-gray-50 border-0 outline-none resize-none"
+                        className="w-full p-4 min-h-[400px] font-mono text-sm bg-gray-50 dark:bg-gray-800 text-gray-900 dark:text-gray-100 border-0 outline-none resize-none"
                         style={{ minHeight: '400px' }}
                         value={emailHtmlCode}
                         onChange={(e) => setEmailHtmlCode(e.target.value)}
@@ -851,10 +851,10 @@ export default function NewCampaign() {
 
           {/* SMS Template */}
           {(campaignType === "sms" || campaignType === "both") && (
-            <div className="bg-white shadow rounded-lg p-6">
+            <div className="card p-6">
               <h2 className="text-lg font-medium mb-6">SMS Template</h2>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
+                <label className="form-label mb-2">
                   Message *
                 </label>
                 <div className="mb-2 text-xs text-gray-500 bg-primary-50 p-2 rounded">
@@ -869,7 +869,7 @@ export default function NewCampaign() {
                   required={campaignType === "sms" || campaignType === "both"}
                   value={smsMessage}
                   onChange={(e) => setSmsMessage(e.target.value)}
-                  className="block w-full rounded-md border-gray-300 shadow-sm focus:border-primary-500 focus:ring-primary-500 resize-none px-3 py-2"
+                  className="form-textarea resize-none"
                   placeholder="Your SMS message here. Include variables like {{firstName}} for personalization."
                 />
                 
@@ -912,7 +912,7 @@ export default function NewCampaign() {
           )}
 
           {/* Campaign Settings */}
-          <div className="bg-white shadow rounded-lg p-6">
+          <div className="card p-6">
             <h2 className="text-lg font-medium mb-6">Campaign Settings</h2>
             <div className="space-y-4">
               {(campaignType === "email" || campaignType === "both") && (
@@ -922,9 +922,9 @@ export default function NewCampaign() {
                       type="checkbox"
                       name="trackOpens"
                       defaultChecked
-                      className="h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500"
+                      className="h-4 w-4 rounded border-gray-300 dark:border-gray-600 text-primary-600 focus:ring-primary-500"
                     />
-                    <span className="text-sm font-medium text-gray-700">Track email opens</span>
+                    <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Track email opens</span>
                   </label>
 
                   <label className="flex items-center space-x-3">
@@ -932,9 +932,9 @@ export default function NewCampaign() {
                       type="checkbox"
                       name="trackClicks"
                       defaultChecked
-                      className="h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500"
+                      className="h-4 w-4 rounded border-gray-300 dark:border-gray-600 text-primary-600 focus:ring-primary-500"
                     />
-                    <span className="text-sm font-medium text-gray-700">Track link clicks</span>
+                    <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Track link clicks</span>
                   </label>
                 </>
               )}
@@ -946,7 +946,7 @@ export default function NewCampaign() {
             <button
               type="button"
               onClick={() => window.history.back()}
-              className="px-4 py-2 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary-500"
+              className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary-500"
             >
               Cancel
             </button>
