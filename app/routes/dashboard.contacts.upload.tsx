@@ -530,9 +530,6 @@ export async function action(args: ActionFunctionArgs) {
         failedRows: errors.length,
         errors: errors.slice(0, 10) // Limit errors shown
       });
-    }
-
-    return json({ error: "Invalid step" }, { status: 400 });
       
       } catch (error) {
         console.error("❌ CSV UPLOAD DEBUG - Duplicate check failed:", {
@@ -541,6 +538,9 @@ export async function action(args: ActionFunctionArgs) {
         });
         return json({ error: "Failed to check for duplicate contacts" }, { status: 500 });
       }
+    }
+
+    return json({ error: "Invalid step" }, { status: 400 });
     
   } catch (error) {
     const totalTime = Date.now() - startTime;
