@@ -425,18 +425,29 @@ export default function OrganizationSettings() {
 
             {/* Signature Preview */}
             {settings.emailSignature?.salesPersonName && (
-              <div className="mt-6 p-4 bg-gray-50 rounded-lg">
-                <h4 className="text-sm font-medium text-gray-900 mb-2">Preview:</h4>
-                <div className="text-sm" dangerouslySetInnerHTML={{
-                  __html: `
-                    <br/>
-                    <p style="margin:0px;">Chat soon,</p>
-                    <p style="margin:0px;"><strong>${settings.emailSignature.salesPersonName}</strong></p>
-                    ${settings.emailSignature.salesPersonTitle ? `<p style="margin:0px;">${settings.emailSignature.salesPersonTitle}</p>` : ''}
-                    <img src="${logoUrl || 'https://imagedelivery.net/fdADyrHW5AIzXwUyxun8dw/b95b1ebf-081b-454a-41f0-4ef26623c400/public'}" width="180px" style="display:block;margin:0px 0px 0px -8px;">
-                    <p style="display:block;margin:5px 0px;color:#343433;">No longer want to receive these types of emails? <a href="#" target="_blank" style="font-weight:600;">Unsubscribe here.</a> (Automatic unsubscribe links will be added to each email)</p>
-                  `
-                }} />
+              <div className="mt-6 p-4 bg-gray-50 dark:bg-gray-800 rounded-lg">
+                <h4 className="text-sm font-medium text-gray-900 dark:text-gray-100 mb-2">Preview:</h4>
+                <div className="text-sm text-gray-900 dark:text-gray-100">
+                  <br/>
+                  <p className="m-0">Chat soon,</p>
+                  <p className="m-0"><strong>{settings.emailSignature.salesPersonName}</strong></p>
+                  {settings.emailSignature.salesPersonTitle && (
+                    <p className="m-0">{settings.emailSignature.salesPersonTitle}</p>
+                  )}
+                  <img 
+                    src={logoUrl || 'https://imagedelivery.net/fdADyrHW5AIzXwUyxun8dw/b95b1ebf-081b-454a-41f0-4ef26623c400/public'} 
+                    width="180" 
+                    className="block my-0 -ml-2" 
+                    alt="Company Logo"
+                  />
+                  <p className="block my-1 text-gray-600 dark:text-gray-400">
+                    No longer want to receive these types of emails? 
+                    <a href="#" className="font-semibold text-primary-600 dark:text-primary-400 hover:text-primary-800 dark:hover:text-primary-300">
+                      Unsubscribe here.
+                    </a> 
+                    (Automatic unsubscribe links will be added to each email)
+                  </p>
+                </div>
               </div>
             )}
           </div>
