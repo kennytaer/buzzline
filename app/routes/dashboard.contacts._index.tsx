@@ -266,8 +266,8 @@ export async function action(args: ActionFunctionArgs) {
       let errorCount = 0;
       
       try {
-        const main = args.context?.cloudflare?.env?.BUZZLINE_MAIN;
-        const cache = args.context?.cloudflare?.env?.BUZZLINE_CACHE;
+        const main = (args.context as any)?.cloudflare?.env?.BUZZLINE_MAIN;
+        const cache = (args.context as any)?.cloudflare?.env?.BUZZLINE_CACHE;
         
         if (!main || !cache) {
           throw new Error('KV namespaces not available');
@@ -283,13 +283,13 @@ export async function action(args: ActionFunctionArgs) {
         if (contactKeysList.keys.length > 0) {
           // Delete all contact keys in batches
           const KV_BATCH_SIZE = 200;
-          const contactKeys = contactKeysList.keys.map(key => key.name);
+          const contactKeys = contactKeysList.keys.map((key: any) => key.name);
           
           for (let i = 0; i < contactKeys.length; i += KV_BATCH_SIZE) {
             const batch = contactKeys.slice(i, i + KV_BATCH_SIZE);
             console.log(`🗑️ DEBUG: Deleting contact batch ${Math.floor(i / KV_BATCH_SIZE) + 1}/${Math.ceil(contactKeys.length / KV_BATCH_SIZE)} - ${batch.length} keys`);
             
-            await Promise.all(batch.map(async (key) => {
+            await Promise.all(batch.map(async (key: string) => {
               try {
                 await main.delete(key);
                 deletedCount++;
@@ -319,7 +319,7 @@ export async function action(args: ActionFunctionArgs) {
         
         // Combine all cache keys
         const allCacheKeys = [
-          ...cacheKeysList.keys.map(key => key.name),
+          ...cacheKeysList.keys.map((key: any) => key.name),
           ...additionalCacheKeys
         ];
         
@@ -370,7 +370,7 @@ export async function action(args: ActionFunctionArgs) {
       let segmentsDeleted = 0;
       
       try {
-        const main = args.context?.cloudflare?.env?.BUZZLINE_MAIN;
+        const main = (args.context as any)?.cloudflare?.env?.BUZZLINE_MAIN;
         if (main) {
           // List all segment/contactlist keys for this org using prefix
           console.log('🔍 DEBUG: Listing all segment keys by prefix');
@@ -380,9 +380,9 @@ export async function action(args: ActionFunctionArgs) {
           console.log(`🗑️ DEBUG: Found ${segmentKeysList.keys.length} segment keys to delete`);
           
           if (segmentKeysList.keys.length > 0) {
-            const segmentKeys = segmentKeysList.keys.map(key => key.name);
+            const segmentKeys = segmentKeysList.keys.map((key: any) => key.name);
             
-            await Promise.all(segmentKeys.map(async (key) => {
+            await Promise.all(segmentKeys.map(async (key: string) => {
               try {
                 await main.delete(key);
                 segmentsDeleted++;

@@ -323,7 +323,8 @@ export async function action(args: ActionFunctionArgs) {
         });
         
         const existingContactMap = new Map();
-        existingContacts.forEach(({email, phone, contact}) => {
+        existingContacts.forEach((item: any) => {
+          const { email, phone, contact } = item;
           if (email) existingContactMap.set(email.toLowerCase(), contact);
           if (phone) existingContactMap.set(phone, contact);
         });
