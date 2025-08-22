@@ -188,48 +188,155 @@ export async function action(args: ActionFunctionArgs) {
       const allSegments = await contactListService.listContactLists(orgId);
       console.log('📊 DEBUG: Found segments:', allSegments.length);
       
-      // Delete all contacts in batches
-      const BATCH_SIZE = 25;
+      // Delete all contacts using direct KV operations (more efficient)
+      console.log('🗑️ DEBUG: Starting direct KV bulk deletion to avoid rate limits');
+      
       let deletedCount = 0;
       let errorCount = 0;
       
-      for (let i = 0; i < allContacts.length; i += BATCH_SIZE) {
-        const batch = allContacts.slice(i, i + BATCH_SIZE);
-        console.log(`🗑️ DEBUG: Deleting batch ${Math.floor(i / BATCH_SIZE) + 1}/${Math.ceil(allContacts.length / BATCH_SIZE)}`);
+      try {
+        // Use direct KV operations instead of service methods to minimize API calls
+        const contactService = getContactService(args.context);
+        const main = args.context?.cloudflare?.env?.BUZZLINE_MAIN;
+        const cache = args.context?.cloudflare?.env?.BUZZLINE_CACHE;
         
-        await Promise.all(batch.map(async (contact) => {
+        if (!main || !cache) {
+          throw new Error('KV namespaces not available');
+        }
+        
+        // Delete contacts directly from KV (much more efficient - 1 operation per contact)
+        const contactKeys = allContacts.map(contact => `org:${orgId}:contact:${contact.id}`);
+        console.log(`🗑️ DEBUG: Deleting ${contactKeys.length} contact keys directly from KV`);
+        
+        // Delete in smaller batches to stay under 1000 operation limit
+        const KV_BATCH_SIZE = 200; // Conservative batch size for KV operations
+        
+        for (let i = 0; i < contactKeys.length; i += KV_BATCH_SIZE) {
+          const batch = contactKeys.slice(i, i + KV_BATCH_SIZE);
+          console.log(`🗑️ DEBUG: KV batch ${Math.floor(i / KV_BATCH_SIZE) + 1}/${Math.ceil(contactKeys.length / KV_BATCH_SIZE)} - ${batch.length} keys`);
+          
+          await Promise.all(batch.map(async (key) => {
+            try {
+              await main.delete(key);
+              deletedCount++;
+            } catch (error) {
+              console.error(`Failed to delete key ${key}:`, error);
+              errorCount++;
+            }
+          }));
+          
+          // Small delay between batches
+          if (i + KV_BATCH_SIZE < contactKeys.length) {
+            await new Promise(resolve => setTimeout(resolve, 50));
+          }
+        }
+        
+        // Clear all contact-related cache entries
+        console.log('🗑️ DEBUG: Clearing contact caches');
+        const cacheKeys = [
+          `org:${orgId}:contact_meta`,
+          `org:${orgId}:contact_search`
+        ];
+        
+        // Add paginated cache keys (estimate up to 50 pages)
+        for (let page = 1; page <= 50; page++) {
+          cacheKeys.push(`org:${orgId}:contact_index:page_${page}`);
+        }
+        
+        await Promise.all(cacheKeys.map(async (key) => {
           try {
-            await contactService.deleteContact(orgId, contact.id);
-            deletedCount++;
+            await cache.delete(key);
           } catch (error) {
-            console.error(`Failed to delete contact ${contact.id}:`, error);
-            errorCount++;
+            console.log(`Cache key ${key} not found or failed to delete:`, error);
           }
         }));
+        
+        console.log('✅ DEBUG: Direct KV deletion complete');
+        
+      } catch (error) {
+        console.error('❌ DEBUG: Direct KV deletion failed, falling back to individual deletion:', error);
+        
+        // Fallback to individual deletion with very small batches
+        const FALLBACK_BATCH_SIZE = 5;
+        for (let i = 0; i < Math.min(allContacts.length, 50); i += FALLBACK_BATCH_SIZE) {
+          const batch = allContacts.slice(i, i + FALLBACK_BATCH_SIZE);
+          console.log(`🗑️ DEBUG: Fallback batch ${Math.floor(i / FALLBACK_BATCH_SIZE) + 1} - ${batch.length} contacts`);
+          
+          await Promise.all(batch.map(async (contact) => {
+            try {
+              await contactService.deleteContact(orgId, contact.id);
+              deletedCount++;
+            } catch (error) {
+              console.error(`Failed to delete contact ${contact.id}:`, error);
+              errorCount++;
+            }
+          }));
+          
+          // Longer delay for fallback
+          if (i + FALLBACK_BATCH_SIZE < Math.min(allContacts.length, 50)) {
+            await new Promise(resolve => setTimeout(resolve, 100));
+          }
+        }
       }
       
-      // Delete all segments/contact lists
-      for (const segment of allSegments) {
+      // Delete all segments/contact lists using direct KV operations
+      console.log('🗑️ DEBUG: Starting segment deletion');
+      let segmentsDeleted = 0;
+      
+      if (allSegments.length > 0) {
         try {
-          await contactListService.deleteContactList(orgId, segment.id);
-          console.log(`🗑️ DEBUG: Deleted segment: ${segment.name}`);
+          const main = args.context?.cloudflare?.env?.BUZZLINE_MAIN;
+          if (main) {
+            // Delete segments directly from KV
+            const segmentKeys = allSegments.map(segment => `org:${orgId}:contactlist:${segment.id}`);
+            console.log(`🗑️ DEBUG: Deleting ${segmentKeys.length} segment keys directly from KV`);
+            
+            await Promise.all(segmentKeys.map(async (key) => {
+              try {
+                await main.delete(key);
+                segmentsDeleted++;
+              } catch (error) {
+                console.error(`Failed to delete segment key ${key}:`, error);
+              }
+            }));
+            
+            // Also delete custom fields for the org
+            try {
+              await main.delete(`org:${orgId}:custom_fields`);
+              console.log('🗑️ DEBUG: Deleted custom fields');
+            } catch (error) {
+              console.log('Custom fields key not found or failed to delete:', error);
+            }
+            
+          } else {
+            // Fallback to service method
+            for (const segment of allSegments) {
+              try {
+                await contactListService.deleteContactList(orgId, segment.id);
+                console.log(`🗑️ DEBUG: Deleted segment: ${segment.name}`);
+                segmentsDeleted++;
+              } catch (error) {
+                console.error(`Failed to delete segment ${segment.id}:`, error);
+              }
+            }
+          }
         } catch (error) {
-          console.error(`Failed to delete segment ${segment.id}:`, error);
+          console.error('Segment deletion error:', error);
         }
       }
       
       console.log('✅ DEBUG: Cleanup complete:', {
         contactsDeleted: deletedCount,
         contactErrors: errorCount,
-        segmentsDeleted: allSegments.length
+        segmentsDeleted: segmentsDeleted
       });
       
       return json({ 
         success: true, 
-        message: `Successfully deleted ${deletedCount} contacts and ${allSegments.length} segments${errorCount > 0 ? ` (${errorCount} errors)` : ''}`,
+        message: `Successfully deleted ${deletedCount} contacts and ${segmentsDeleted} segments${errorCount > 0 ? ` (${errorCount} errors)` : ''}`,
         deletedCount,
         errorCount,
-        segmentsDeleted: allSegments.length
+        segmentsDeleted: segmentsDeleted
       });
       
     } catch (error) {
