@@ -48,17 +48,47 @@ export async function loader(args: LoaderFunctionArgs) {
         // Get all contacts to calculate stats
         const allContacts = await contactService.listContacts(orgId);
         
-        stats.contactsWithPhone = allContacts.filter(contact => 
+        console.log('📊 CONTACT STATS DEBUG:', {
+          paginatedTotalContacts: contactsData.totalContacts,
+          actualContactsRetrieved: allContacts.length,
+          mismatch: contactsData.totalContacts !== allContacts.length,
+          usingActualCount: true
+        });
+        
+        // Always use the actual count from all contacts retrieved (not stale metadata)
+        stats.totalContacts = allContacts.length;
+        
+        const contactsWithPhone = allContacts.filter(contact => 
           contact.phone && contact.phone.trim() !== ''
-        ).length;
+        );
         
-        stats.contactsWithEmail = allContacts.filter(contact => 
+        const contactsWithEmail = allContacts.filter(contact => 
           contact.email && contact.email.trim() !== ''
-        ).length;
+        );
         
-        stats.subscribedContacts = allContacts.filter(contact => 
+        const subscribedContacts = allContacts.filter(contact => 
           !contact.optedOut
-        ).length;
+        );
+        
+        stats.contactsWithPhone = contactsWithPhone.length;
+        stats.contactsWithEmail = contactsWithEmail.length;
+        stats.subscribedContacts = subscribedContacts.length;
+        
+        console.log('📊 CONTACT STATS BREAKDOWN:', {
+          totalContacts: stats.totalContacts,
+          withPhone: stats.contactsWithPhone,
+          withEmail: stats.contactsWithEmail,
+          subscribed: stats.subscribedContacts,
+          // Show sample contacts for debugging
+          sampleContacts: allContacts.slice(0, 3).map(c => ({
+            id: c.id,
+            hasPhone: !!(c.phone && c.phone.trim()),
+            hasEmail: !!(c.email && c.email.trim()),
+            optedOut: c.optedOut,
+            phone: c.phone,
+            email: c.email
+          }))
+        });
         
       } catch (error) {
         console.error('Failed to calculate contact stats:', error);
@@ -276,18 +306,30 @@ export async function action(args: ActionFunctionArgs) {
           }
         }
         
-        // Clear all contact-related cache entries by prefix
-        console.log('🗑️ DEBUG: Clearing contact cache entries by prefix');
+        // Clear all contact-related cache entries by prefix (including metadata)
+        console.log('🗑️ DEBUG: Clearing contact cache entries and metadata by prefix');
         const cachePrefix = `org:${orgId}:contact`;
         const cacheKeysList = await cache.list({ prefix: cachePrefix, limit: 100 });
         
-        if (cacheKeysList.keys.length > 0) {
-          const cacheKeysToDelete = cacheKeysList.keys.map(key => key.name);
-          console.log(`🗑️ DEBUG: Found ${cacheKeysToDelete.length} cache keys to delete`);
+        // Also manually add the metadata keys that might not be caught by prefix
+        const additionalCacheKeys = [
+          `org:${orgId}:contact_meta`,
+          `org:${orgId}:contact_search`
+        ];
+        
+        // Combine all cache keys
+        const allCacheKeys = [
+          ...cacheKeysList.keys.map(key => key.name),
+          ...additionalCacheKeys
+        ];
+        
+        if (allCacheKeys.length > 0) {
+          console.log(`🗑️ DEBUG: Found ${allCacheKeys.length} cache keys to delete (including metadata)`);
           
-          await Promise.all(cacheKeysToDelete.map(async (key) => {
+          await Promise.all(allCacheKeys.map(async (key) => {
             try {
               await cache.delete(key);
+              console.log(`✅ Deleted cache key: ${key}`);
             } catch (error) {
               console.log(`Cache key ${key} not found or failed to delete:`, error);
             }
@@ -372,6 +414,17 @@ export async function action(args: ActionFunctionArgs) {
         }
       } catch (error) {
         console.error('Segment deletion error:', error);
+      }
+      
+      // Force rebuild of contact metadata to sync counts
+      console.log('🔄 DEBUG: Rebuilding contact metadata after mass deletion');
+      try {
+        const contactService = getContactService(args.context);
+        await contactService.forceRebuildMetadata(orgId);
+        console.log('✅ DEBUG: Metadata rebuild complete');
+      } catch (error) {
+        console.error('❌ DEBUG: Failed to rebuild metadata:', error);
+        // Don't fail the entire operation for this
       }
       
       console.log('✅ DEBUG: Cleanup complete:', {
