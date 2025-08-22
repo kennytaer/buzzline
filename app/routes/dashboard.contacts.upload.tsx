@@ -600,8 +600,8 @@ export default function ContactUpload() {
 
   // Loading component
   const LoadingSpinner = ({ message }: { message: string }) => (
-    <div className="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50">
-      <div className="relative top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 bg-white rounded-lg shadow-xl p-8 max-w-md mx-auto">
+    <div className="fixed inset-0 bg-gray-600 bg-opacity-50 z-50 flex items-center justify-center">
+      <div className="bg-white rounded-lg shadow-xl p-8 max-w-md w-full mx-4">
         <div className="flex flex-col items-center space-y-4">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-600"></div>
           <div className="text-center">

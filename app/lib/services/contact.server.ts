@@ -330,7 +330,7 @@ export class ContactService {
   }
 
   async listContacts(orgId: string) {
-    return await this.listAllContacts(orgId);
+    return await this.listAllContacts(orgId, 10000); // Increase limit for stats calculation
   }
 
   async findContactsByEmailsOrPhones(orgId: string, emailsAndPhones: Array<{email?: string, phone?: string}>) {
@@ -686,6 +686,28 @@ export class ContactService {
       }
     }
     await this.cache.delete(metaKey);
+  }
+
+  // Force rebuild of contact metadata and indexes after mass operations
+  async forceRebuildMetadata(orgId: string) {
+    console.log('🔄 Forcing metadata rebuild for org:', orgId);
+    try {
+      // Clear existing cache entries
+      await this.clearContactCaches(orgId);
+      
+      // Rebuild all indexes and metadata
+      const metadata = await this.rebuildContactIndexes(orgId);
+      
+      console.log('✅ Metadata rebuild complete:', {
+        totalContacts: metadata.totalContacts,
+        totalPages: metadata.totalPages
+      });
+      
+      return metadata;
+    } catch (error) {
+      console.error('Failed to rebuild metadata:', error);
+      throw error;
+    }
   }
 
   // Trigger dynamic segment refresh when contacts are updated
