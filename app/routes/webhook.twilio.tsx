@@ -43,15 +43,17 @@ export async function action(args: ActionFunctionArgs) {
       const isOptOut = optOutKeywords.some(keyword => responseText.includes(keyword));
       
       if (isOptOut) {
-        console.log(`Opt-out detected from ${from}: ${body_text}`);
+        console.log(`Opt-out detected from ${from} to ${to}: ${body_text}`);
         
-        // Find contact by phone number and mark as opted out
-        await handleOptOut(contactService, kvService, from, 'sms');
+        // Find which organization owns the phone number that received this message
+        // The 'to' field is the business phone number that sent the original SMS
+        await handleOptOut(contactService, kvService, from, to);
         
         // Log the opt-out event
         await logWebhookEvent(kvService, {
           type: 'sms_opt_out',
           phone: from,
+          businessPhone: to,
           message: body_text,
           timestamp: new Date().toISOString(),
           messageSid
@@ -61,6 +63,7 @@ export async function action(args: ActionFunctionArgs) {
         await logWebhookEvent(kvService, {
           type: 'sms_response',
           phone: from,
+          businessPhone: to,
           message: body_text,
           timestamp: new Date().toISOString(),
           messageSid
@@ -84,38 +87,65 @@ export async function action(args: ActionFunctionArgs) {
   }
 }
 
-// Handle opt-out by finding contact and updating their status
-async function handleOptOut(contactService: any, kvService: any, phone: string, channel: 'sms' | 'email') {
+// Handle opt-out by finding the specific organization that owns the business phone
+async function handleOptOut(contactService: any, kvService: any, customerPhone: string, businessPhone: string) {
   try {
-    // Search across all organizations for this contact
-    // This is a simplified approach - in production you might want to optimize this
+    console.log(`Processing opt-out for customer ${customerPhone} via business phone ${businessPhone}`);
+    
+    // Find which organization owns this business phone number
     const allOrgs = await getAllOrganizations(kvService);
+    let targetOrgId = null;
     
     for (const orgId of allOrgs) {
-      const contacts = await contactService.listContacts(orgId);
-      
-      for (const contact of contacts) {
-        if (contact.phone === phone || contact.email === phone) {
-          console.log(`Found contact ${contact.id} in org ${orgId}, marking as opted out`);
-          
-          // Update contact opt-out status
-          await contactService.updateContactOptOut(orgId, contact.id, true);
-          
-          // Log the opt-out in analytics
-          await kvService.setCache(`optout:${channel}:${contact.id}`, {
-            contactId: contact.id,
-            orgId,
-            channel,
-            timestamp: new Date().toISOString(),
-            method: 'twilio_webhook'
-          });
-          
-          return; // Found and updated
-        }
+      // Check if this org uses this business phone number in their settings
+      const orgSettings = await kvService.getOrgSettings(orgId);
+      if (orgSettings?.companyInfo?.fromPhoneNumber === businessPhone) {
+        targetOrgId = orgId;
+        console.log(`Found organization ${orgId} owns business phone ${businessPhone}`);
+        break;
       }
     }
     
-    console.log(`No contact found for ${channel} opt-out: ${phone}`);
+    if (!targetOrgId) {
+      console.log(`No organization found for business phone ${businessPhone}`);
+      return;
+    }
+    
+    // Find the contact in this specific organization
+    const contacts = await contactService.listContacts(targetOrgId);
+    
+    for (const contact of contacts) {
+      if (contact.phone === customerPhone) {
+        console.log(`Found contact ${contact.id} in org ${targetOrgId}, opting out from both SMS and Email`);
+        
+        // Opt out from BOTH SMS and Email (all-or-nothing approach)
+        await contactService.updateContactOptOut(targetOrgId, contact.id, true);
+        
+        // Log the opt-out in analytics for both channels
+        await kvService.setCache(`optout:sms:${contact.id}`, {
+          contactId: contact.id,
+          orgId: targetOrgId,
+          channel: 'sms',
+          timestamp: new Date().toISOString(),
+          method: 'twilio_webhook',
+          businessPhone
+        });
+        
+        await kvService.setCache(`optout:email:${contact.id}`, {
+          contactId: contact.id,
+          orgId: targetOrgId,
+          channel: 'email',
+          timestamp: new Date().toISOString(),
+          method: 'twilio_webhook_cascade',
+          businessPhone
+        });
+        
+        console.log(`Contact ${contact.id} opted out from organization ${targetOrgId} (both SMS and Email)`);
+        return;
+      }
+    }
+    
+    console.log(`No contact found with phone ${customerPhone} in organization ${targetOrgId}`);
     
   } catch (error) {
     console.error('Error handling opt-out:', error);
@@ -162,16 +192,21 @@ async function logWebhookEvent(kvService: any, event: any) {
   }
 }
 
-// Get all organization IDs (simplified - you might want to cache this)
+// Get all organization IDs by scanning KV keys
 async function getAllOrganizations(kvService: any): Promise<string[]> {
-  // This is a simplified implementation
-  // In practice, you might want to maintain an index of organization IDs
-  // or use a different approach based on your KV structure
-  
   try {
-    // For now, return empty array - you'll need to implement this based on your needs
-    // This could involve scanning KV keys with pattern matching
-    return [];
+    const list = await kvService.main.list({ prefix: 'org:', limit: 1000 });
+    const orgIds = new Set<string>();
+    
+    for (const key of list.keys) {
+      const match = key.name.match(/^org:([^:]+):/);
+      if (match) {
+        orgIds.add(match[1]);
+      }
+    }
+    
+    console.log(`Found ${orgIds.size} organizations for opt-out search`);
+    return Array.from(orgIds);
   } catch (error) {
     console.error('Error getting organizations:', error);
     return [];

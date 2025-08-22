@@ -80,7 +80,6 @@ export async function loader(args: LoaderFunctionArgs) {
           salesPersonTitle: '',
           salesPersonPhone: '',
           companyLogoUrl: '',
-          unsubscribeUrl: ''
         },
         companyInfo: {
           name: '',
@@ -140,7 +139,6 @@ export async function action(args: ActionFunctionArgs) {
         salesPersonTitle: formData.get("salesPersonTitle") as string,
         salesPersonPhone: formData.get("salesPersonPhone") as string,
         companyLogoUrl: formData.get("companyLogoUrl") as string,
-        unsubscribeUrl: formData.get("unsubscribeUrl") as string,
       };
 
       await kvService.updateOrgSettings(orgId, { emailSignature });
@@ -358,19 +356,6 @@ export default function OrganizationSettings() {
                   />
                 </div>
 
-                <div className="sm:col-span-2">
-                  <label htmlFor="unsubscribeUrl" className="block text-sm font-medium text-gray-700">
-                    Unsubscribe URL
-                  </label>
-                  <input
-                    type="url"
-                    name="unsubscribeUrl"
-                    id="unsubscribeUrl"
-                    defaultValue={settings.emailSignature?.unsubscribeUrl || ''}
-                    className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-primary-500 focus:border-primary-500 px-3 py-2"
-                    placeholder="https://yourcompany.com/unsubscribe"
-                  />
-                </div>
 
                 <div className="sm:col-span-2">
                   <label className="block text-sm font-medium text-gray-700">
@@ -449,7 +434,7 @@ export default function OrganizationSettings() {
                     <p style="margin:0px;"><strong>${settings.emailSignature.salesPersonName}</strong></p>
                     ${settings.emailSignature.salesPersonTitle ? `<p style="margin:0px;">${settings.emailSignature.salesPersonTitle}</p>` : ''}
                     <img src="${logoUrl || 'https://imagedelivery.net/fdADyrHW5AIzXwUyxun8dw/b95b1ebf-081b-454a-41f0-4ef26623c400/public'}" width="180px" style="display:block;margin:0px 0px 0px -8px;">
-                    <p style="display:block;margin:5px 0px;color:#343433;">No longer want to receive these types of emails? <a href="${settings.emailSignature.unsubscribeUrl || '#'}" target="_blank" style="font-weight:600;">Unsubscribe here.</a></p>
+                    <p style="display:block;margin:5px 0px;color:#343433;">No longer want to receive these types of emails? <a href="#" target="_blank" style="font-weight:600;">Unsubscribe here.</a> (Automatic unsubscribe links will be added to each email)</p>
                   `
                 }} />
               </div>
