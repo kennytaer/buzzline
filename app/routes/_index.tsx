@@ -28,10 +28,10 @@ export default function Index() {
         <header className="flex flex-col items-center gap-9">
           <div className="flex flex-col items-center gap-6">
             <img src="/Buzzline_Logo.png" alt="BuzzLine" className="h-16" />
-            <h1 className="text-4xl font-bold text-gray-800 text-center">
+            <h1 className="text-4xl font-bold text-gray-800 dark:text-gray-100 text-center">
               Marketing Communication Platform
             </h1>
-            <p className="text-xl text-gray-600 text-center max-w-2xl">
+            <p className="text-xl text-gray-600 dark:text-gray-400 text-center max-w-2xl">
               Unify your SMS and email marketing campaigns with BuzzLine. Create, send, and track multi-channel campaigns from one platform.
             </p>
             
