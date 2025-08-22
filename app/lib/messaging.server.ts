@@ -320,8 +320,8 @@ export class MessagingService {
     // Generate a secure token for the unsubscribe link
     const token = Buffer.from(`${orgId}:${contactId}:${campaignId}:${Date.now()}`).toString('base64url');
     
-    // Use environment variable for domain or fallback to localhost for development
-    const domain = process.env.APP_DOMAIN || process.env.PUBLIC_URL || 'https://buzzline.app';
+    // Use environment variable for domain or fallback to production domain
+    const domain = process.env.APP_DOMAIN || process.env.PUBLIC_URL || 'https://buzzline.ca';
     
     return `${domain}/unsubscribe/${token}`;
   }

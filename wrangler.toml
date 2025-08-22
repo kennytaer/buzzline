@@ -4,6 +4,16 @@ compatibility_date = "2024-10-15"
 compatibility_flags = ["nodejs_compat"]
 pages_build_output_dir = "./build/client"
 
+# Environment Variables
+[vars]
+CLERK_PUBLISHABLE_KEY = "pk_test_ZGVlcC1tb3NxdWl0by02MC5jbGVyay5hY2NvdW50cy5kZXYk"
+CLERK_SECRET_KEY = "sk_test_4Cj9U7ewdXZjElwfNxa39rMFzuUVrND4HeNLWSdaVP"
+TWILIO_ACCOUNT_SID = "AC47a352bf4dc3265e74e1bb481fb8a845"
+TWILIO_AUTH_TOKEN = "ffdb404cded3ada739ac80d555ddc086"
+EMAILING_ENDPOINT = "bm-email-service.benchmetrics.workers.dev/email"
+EMAILING_ENDPOINT_API_KEY = "google-sheet-for-leads-5d6811e4-6ba7-4822-919f-f3103c50f9d0"
+SMS_ENDPOINT = "bm-benchmetrics-sms-service.benchmetrics.workers.dev/textMessage"
+SMS_ENDPOINT_API_KEY = "benchmetrics-3dc3c222-64ab-4d44-abd5-84f648e1d8af"
 
 # KV Namespaces
 [[kv_namespaces]]
