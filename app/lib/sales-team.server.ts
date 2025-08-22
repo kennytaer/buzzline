@@ -46,14 +46,14 @@ export class SalesTeamService {
     const key = `org:${orgId}:salesteam:${id}`;
     await this.kv.putSalesTeamData(key, member);
 
-    // Update indexes (new efficient system)
-    await this.kv.updateSalesTeamIndexes(orgId, id, member);
-
-    // Update legacy list for backward compatibility
+    // Update legacy list first (source of truth)
     const membersList = await this.getAllMembers(orgId);
     membersList.push(member);
     const listKey = `org:${orgId}:salesteam:list`;
     await this.kv.putSalesTeamData(listKey, membersList);
+
+    // Update indexes (will rebuild from legacy list)
+    await this.kv.updateSalesTeamIndexes(orgId, id, member);
 
     return member;
   }
@@ -103,10 +103,7 @@ export class SalesTeamService {
     const key = `org:${orgId}:salesteam:${id}`;
     await this.kv.putSalesTeamData(key, updatedMember);
 
-    // Update indexes (new efficient system)
-    await this.kv.updateSalesTeamIndexes(orgId, id, updatedMember);
-
-    // Update legacy list for backward compatibility
+    // Update legacy list first (source of truth)
     const membersList = await this.getAllMembers(orgId);
     const index = membersList.findIndex(m => m.id === id);
     if (index >= 0) {
@@ -114,6 +111,9 @@ export class SalesTeamService {
       const listKey = `org:${orgId}:salesteam:list`;
       await this.kv.putSalesTeamData(listKey, membersList);
     }
+
+    // Update indexes (will rebuild from legacy list)
+    await this.kv.updateSalesTeamIndexes(orgId, id, updatedMember);
 
     return updatedMember;
   }
@@ -131,6 +131,9 @@ export class SalesTeamService {
     const filteredList = membersList.filter(m => m.id !== id);
     const listKey = `org:${orgId}:salesteam:list`;
     await this.kv.putSalesTeamData(listKey, filteredList);
+
+    // Update indexes after deletion
+    await this.kv.updateSalesTeamIndexes(orgId, id, null);
 
     return true;
   }
@@ -178,8 +181,10 @@ export class SalesTeamService {
     active: number;
     inactive: number;
   }> {
-    const members = await this.getAllMembers(orgId);
-    const active = members.filter(m => m.isActive).length;
+    // Use the same indexing system for consistency
+    const result = await this.kv.getSalesTeamPaginated(orgId, 1, 1000); // Get up to 1000 members
+    const members = result.members || [];
+    const active = members.filter((m: SalesTeamMember) => m.isActive).length;
     
     return {
       total: members.length,
