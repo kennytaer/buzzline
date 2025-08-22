@@ -492,135 +492,22 @@ export class ContactService {
   }
 
   private async updateContactIndexes(orgId: string, contactId: string, contactData: any) {
-    const CONTACTS_PER_PAGE = 50;
-    
-    const metaKey = this.getContactMetaKey(orgId);
-    let meta = await this.cache.get(metaKey);
-    let metadata = meta ? JSON.parse(meta) : { totalContacts: 0, totalPages: 0, lastUpdated: new Date().toISOString() };
-    
-    const searchKey = this.getContactSearchKey(orgId);
-    let searchData = await this.cache.get(searchKey);
-    let searchIndex = searchData ? JSON.parse(searchData) : {};
-    const isNewContact = !searchIndex[contactId];
-    
-    if (isNewContact) {
-      metadata.totalContacts++;
-      metadata.totalPages = Math.ceil(metadata.totalContacts / CONTACTS_PER_PAGE);
-    }
-    
-    const pageKey = this.getContactIndexKey(orgId, 1);
-    let pageData = await this.cache.get(pageKey);
-    let contacts = pageData ? JSON.parse(pageData) : [];
-    
-    contacts = contacts.filter((c: any) => c.id !== contactId);
-    const indexEntry = this.createContactIndexEntry(contactData);
-    contacts.unshift(indexEntry);
-    
-    if (contacts.length > CONTACTS_PER_PAGE) {
-      await this.redistributeContactPages(orgId, contacts, CONTACTS_PER_PAGE);
-    } else {
-      await this.cache.put(pageKey, JSON.stringify(contacts));
-    }
-    
-    metadata.lastUpdated = new Date().toISOString();
-    await this.cache.put(metaKey, JSON.stringify(metadata));
-    
-    await this.updateContactSearchIndex(orgId, contactData);
+    // For reliability, always rebuild indexes when contacts change
+    // This ensures complete consistency between direct enumeration and indexes
+    console.log("CONTACT INDEX UPDATE - Rebuilding for org:", orgId, "contact:", contactId);
+    await this.rebuildContactIndexes(orgId);
   }
 
   private async updateContactIndexesBulk(orgId: string, contacts: Array<{id: string, data: any}>) {
     if (contacts.length === 0) return;
     
-    const CONTACTS_PER_PAGE = 50;
-    const metaKey = this.getContactMetaKey(orgId);
-    let meta = await this.cache.get(metaKey);
-    let metadata = meta ? JSON.parse(meta) : { totalContacts: 0, totalPages: 0, lastUpdated: new Date().toISOString() };
-    
-    metadata.totalContacts += contacts.length;
-    metadata.totalPages = Math.ceil(metadata.totalContacts / CONTACTS_PER_PAGE);
-    metadata.lastUpdated = new Date().toISOString();
-    
-    const pageKey = this.getContactIndexKey(orgId, 1);
-    let pageData = await this.cache.get(pageKey);
-    let page1Contacts = pageData ? JSON.parse(pageData) : [];
-    
-    const newIndexEntries = contacts.map(({data}) => this.createContactIndexEntry(data));
-    page1Contacts.unshift(...newIndexEntries);
-    
-    if (page1Contacts.length > CONTACTS_PER_PAGE) {
-      await this.redistributeContactPages(orgId, page1Contacts, CONTACTS_PER_PAGE);
-    } else {
-      await this.cache.put(pageKey, JSON.stringify(page1Contacts));
-    }
-    
-    const searchKey = this.getContactSearchKey(orgId);
-    let searchData = await this.cache.get(searchKey);
-    let searchIndex = searchData ? JSON.parse(searchData) : {};
-    
-    for (const {id, data} of contacts) {
-      const searchText = [
-        data.firstName,
-        data.lastName,
-        data.email,
-        data.phone,
-        data.metadata ? Object.values(data.metadata).join(' ') : ''
-      ].filter(Boolean).join(' ').toLowerCase();
-      
-      searchIndex[id] = {
-        searchText,
-        firstName: data.firstName,
-        lastName: data.lastName,
-        email: data.email,
-        phone: data.phone,
-        createdAt: data.createdAt
-      };
-    }
-    
-    await Promise.all([
-      this.cache.put(searchKey, JSON.stringify(searchIndex)),
-      this.cache.put(metaKey, JSON.stringify(metadata))
-    ]);
+    // For bulk operations, also rebuild indexes to ensure consistency
+    console.log("CONTACT INDEX BULK UPDATE - Rebuilding for org:", orgId, "contacts:", contacts.length);
+    await this.rebuildContactIndexes(orgId);
   }
 
-  private async redistributeContactPages(orgId: string, allContacts: any[], contactsPerPage: number) {
-    for (let page = 1; page <= Math.ceil(allContacts.length / contactsPerPage); page++) {
-      const startIdx = (page - 1) * contactsPerPage;
-      const endIdx = startIdx + contactsPerPage;
-      const pageContacts = allContacts.slice(startIdx, endIdx);
-      
-      const pageKey = this.getContactIndexKey(orgId, page);
-      if (pageContacts.length > 0) {
-        await this.cache.put(pageKey, JSON.stringify(pageContacts));
-      } else {
-        await this.cache.delete(pageKey);
-      }
-    }
-  }
-
-  private async updateContactSearchIndex(orgId: string, contactData: any) {
-    const searchText = [
-      contactData.firstName,
-      contactData.lastName,
-      contactData.email,
-      contactData.phone,
-      contactData.metadata ? Object.values(contactData.metadata).join(' ') : ''
-    ].filter(Boolean).join(' ').toLowerCase();
-    
-    const searchKey = this.getContactSearchKey(orgId);
-    let searchData = await this.cache.get(searchKey);
-    let searchIndex = searchData ? JSON.parse(searchData) : {};
-    
-    searchIndex[contactData.id] = {
-      searchText,
-      firstName: contactData.firstName,
-      lastName: contactData.lastName,
-      email: contactData.email,
-      phone: contactData.phone,
-      createdAt: contactData.createdAt
-    };
-    
-    await this.cache.put(searchKey, JSON.stringify(searchIndex));
-  }
+  // Removed redistributeContactPages and updateContactSearchIndex methods
+  // These are no longer needed since updateContactIndexes now does a full rebuild
 
   private async rebuildContactIndexes(orgId: string) {
     const CONTACTS_PER_PAGE = 50;

@@ -155,67 +155,9 @@ export class KVService {
   async updateContactIndexesBulk(orgId: string, contacts: Array<{id: string, data: any}>) {
     if (contacts.length === 0) return;
     
-    console.log("BULK INDEX UPDATE - Count:", contacts.length);
-    const CONTACTS_PER_PAGE = 50;
-    
-    // Get current metadata
-    const metaKey = this.getContactMetaKey(orgId);
-    let meta = await this.cache.get(metaKey);
-    let metadata = meta ? JSON.parse(meta) : { totalContacts: 0, totalPages: 0, lastUpdated: new Date().toISOString() };
-    
-    // Update total count
-    metadata.totalContacts += contacts.length;
-    metadata.totalPages = Math.ceil(metadata.totalContacts / CONTACTS_PER_PAGE);
-    metadata.lastUpdated = new Date().toISOString();
-    
-    // Get page 1 to add new contacts (newest first)
-    const pageKey = this.getContactIndexKey(orgId, 1);
-    let pageData = await this.cache.get(pageKey);
-    let page1Contacts = pageData ? JSON.parse(pageData) : [];
-    
-    // Add new contacts to beginning of page 1
-    const newIndexEntries = contacts.map(({data}) => this.createContactIndexEntry(data));
-    page1Contacts.unshift(...newIndexEntries);
-    
-    // Redistribute if page 1 is too large
-    if (page1Contacts.length > CONTACTS_PER_PAGE) {
-      await this.redistributeContactPages(orgId, page1Contacts, CONTACTS_PER_PAGE);
-    } else {
-      await this.cache.put(pageKey, JSON.stringify(page1Contacts));
-    }
-    
-    // Update search index in bulk
-    const searchKey = this.getContactSearchKey(orgId);
-    let searchData = await this.cache.get(searchKey);
-    let searchIndex = searchData ? JSON.parse(searchData) : {};
-    
-    // Add all new contacts to search index
-    for (const {id, data} of contacts) {
-      const searchText = [
-        data.firstName,
-        data.lastName,
-        data.email,
-        data.phone,
-        data.metadata ? Object.values(data.metadata).join(' ') : ''
-      ].filter(Boolean).join(' ').toLowerCase();
-      
-      searchIndex[id] = {
-        searchText,
-        firstName: data.firstName,
-        lastName: data.lastName,
-        email: data.email,
-        phone: data.phone,
-        createdAt: data.createdAt
-      };
-    }
-    
-    // Update search index and metadata
-    await Promise.all([
-      this.cache.put(searchKey, JSON.stringify(searchIndex)),
-      this.cache.put(metaKey, JSON.stringify(metadata))
-    ]);
-    
-    console.log("BULK INDEX UPDATE COMPLETE");
+    // For bulk operations, also rebuild indexes to ensure consistency
+    console.log("KV BULK CONTACT INDEX UPDATE - Rebuilding for org:", orgId, "contacts:", contacts.length);
+    await this.rebuildContactIndexes(orgId);
   }
 
   async findContactsByEmailsOrPhones(orgId: string, emailsAndPhones: Array<{email?: string, phone?: string}>) {
@@ -284,53 +226,10 @@ export class KVService {
   }
 
   async updateContactIndexes(orgId: string, contactId: string, contactData: any) {
-    const CONTACTS_PER_PAGE = 50;
-    
-    // Get current metadata
-    const metaKey = this.getContactMetaKey(orgId);
-    let meta = await this.cache.get(metaKey);
-    let metadata = meta ? JSON.parse(meta) : { totalContacts: 0, totalPages: 0, lastUpdated: new Date().toISOString() };
-    
-    // Check if this is a new contact by looking for existing index entry
-    const searchKey = this.getContactSearchKey(orgId);
-    let searchData = await this.cache.get(searchKey);
-    let searchIndex = searchData ? JSON.parse(searchData) : {};
-    const isNewContact = !searchIndex[contactId];
-    
-    if (isNewContact) {
-      metadata.totalContacts++;
-      metadata.totalPages = Math.ceil(metadata.totalContacts / CONTACTS_PER_PAGE);
-    }
-    
-    // Determine which page this contact should go on (newest first)
-    const targetPage = 1; // Always add new contacts to page 1
-    
-    // Get the current page
-    const pageKey = this.getContactIndexKey(orgId, targetPage);
-    let pageData = await this.cache.get(pageKey);
-    let contacts = pageData ? JSON.parse(pageData) : [];
-    
-    // Remove existing entry if updating
-    contacts = contacts.filter((c: any) => c.id !== contactId);
-    
-    // Add new entry at the beginning (newest first)
-    const indexEntry = this.createContactIndexEntry(contactData);
-    contacts.unshift(indexEntry);
-    
-    // If page 1 is full, shift contacts to next pages
-    if (contacts.length > CONTACTS_PER_PAGE) {
-      await this.redistributeContactPages(orgId, contacts, CONTACTS_PER_PAGE);
-    } else {
-      // Just update this page
-      await this.cache.put(pageKey, JSON.stringify(contacts));
-    }
-    
-    // Update metadata
-    metadata.lastUpdated = new Date().toISOString();
-    await this.cache.put(metaKey, JSON.stringify(metadata));
-    
-    // Update search index
-    await this.updateContactSearchIndex(orgId, contactData);
+    // For reliability, always rebuild indexes when contacts change
+    // This ensures complete consistency in case this method is still used
+    console.log("KV CONTACT INDEX UPDATE - Rebuilding for org:", orgId, "contact:", contactId);
+    await this.rebuildContactIndexes(orgId);
   }
 
   async redistributeContactPages(orgId: string, allContacts: any[], contactsPerPage: number) {
@@ -985,103 +884,14 @@ export class KVService {
   }
 
   async updateSalesTeamIndexes(orgId: string, memberId: string, memberData: any) {
-    const MEMBERS_PER_PAGE = 20; // Smaller pages for team members
-    
-    // Get current metadata
-    const metaKey = this.getSalesTeamMetaKey(orgId);
-    let meta = await this.cache.get(metaKey);
-    let metadata = meta ? JSON.parse(meta) : { totalMembers: 0, totalPages: 0, lastUpdated: new Date().toISOString() };
-    
-    // Check if this is a new member by looking for existing index entry
-    const searchKey = this.getSalesTeamSearchKey(orgId);
-    let searchData = await this.cache.get(searchKey);
-    let searchIndex = searchData ? JSON.parse(searchData) : {};
-    const isNewMember = !searchIndex[memberId];
-    
-    if (isNewMember) {
-      metadata.totalMembers++;
-      metadata.totalPages = Math.ceil(metadata.totalMembers / MEMBERS_PER_PAGE);
-    }
-    
-    // Always add new members to page 1 (newest first)
-    const targetPage = 1;
-    
-    // Get the current page
-    const pageKey = this.getSalesTeamIndexKey(orgId, targetPage);
-    let pageData = await this.cache.get(pageKey);
-    let members = pageData ? JSON.parse(pageData) : [];
-    
-    // Remove existing entry if updating
-    members = members.filter((m: any) => m.id !== memberId);
-    
-    // Add new entry at the beginning (newest first)
-    const indexEntry = this.createSalesTeamIndexEntry(memberData);
-    members.unshift(indexEntry);
-    
-    // If page 1 is full, redistribute across pages
-    if (members.length > MEMBERS_PER_PAGE) {
-      await this.redistributeSalesTeamPages(orgId, members, MEMBERS_PER_PAGE);
-    } else {
-      // Just update this page
-      await this.cache.put(pageKey, JSON.stringify(members));
-    }
-    
-    // Update metadata
-    metadata.lastUpdated = new Date().toISOString();
-    await this.cache.put(metaKey, JSON.stringify(metadata));
-    
-    // Update search index
-    await this.updateSalesTeamSearchIndex(orgId, memberData);
+    // For reliability, always rebuild indexes when members change
+    // This ensures complete consistency between legacy list and indexes
+    console.log("SALES TEAM INDEX UPDATE - Rebuilding for org:", orgId, "member:", memberId);
+    await this.rebuildSalesTeamIndexes(orgId);
   }
 
-  async redistributeSalesTeamPages(orgId: string, allMembers: any[], membersPerPage: number) {
-    // Redistribute members across pages
-    for (let page = 1; page <= Math.ceil(allMembers.length / membersPerPage); page++) {
-      const startIdx = (page - 1) * membersPerPage;
-      const endIdx = startIdx + membersPerPage;
-      const pageMembers = allMembers.slice(startIdx, endIdx);
-      
-      const pageKey = this.getSalesTeamIndexKey(orgId, page);
-      if (pageMembers.length > 0) {
-        await this.cache.put(pageKey, JSON.stringify(pageMembers));
-      } else {
-        // Clean up empty pages
-        await this.cache.delete(pageKey);
-      }
-    }
-  }
-
-  async updateSalesTeamSearchIndex(orgId: string, memberData: any) {
-    // Create searchable text for this member
-    const searchText = [
-      memberData.firstName,
-      memberData.lastName,
-      memberData.email,
-      memberData.phone,
-      memberData.title,
-      memberData.department
-    ].filter(Boolean).join(' ').toLowerCase();
-    
-    // Get current search index
-    const searchKey = this.getSalesTeamSearchKey(orgId);
-    let searchData = await this.cache.get(searchKey);
-    let searchIndex = searchData ? JSON.parse(searchData) : {};
-    
-    // Update search index for this member
-    searchIndex[memberData.id] = {
-      searchText,
-      firstName: memberData.firstName,
-      lastName: memberData.lastName,
-      email: memberData.email,
-      phone: memberData.phone,
-      title: memberData.title,
-      department: memberData.department,
-      isActive: memberData.isActive,
-      createdAt: memberData.createdAt
-    };
-    
-    await this.cache.put(searchKey, JSON.stringify(searchIndex));
-  }
+  // Removed redistributeSalesTeamPages and updateSalesTeamSearchIndex methods
+  // These are no longer needed since updateSalesTeamIndexes now does a full rebuild
 
   async getSalesTeamPaginated(orgId: string, page: number = 1, limit: number = 20, search?: string) {
     console.log("FAST SALES TEAM PAGINATION - OrgId:", orgId, "Page:", page, "Search:", search);
