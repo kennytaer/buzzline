@@ -4,91 +4,86 @@
 
 html,
 body {
-  @apply bg-white dark:bg-gray-950 text-gray-900 dark:text-gray-100;
-
-  @media (prefers-color-scheme: dark) {
-    color-scheme: dark;
-  }
+  @apply bg-white text-gray-900;
+  color-scheme: light;
 }
 
-/* Force white backgrounds for form inputs only in dark mode */
-@media (prefers-color-scheme: dark) {
-  input[type="text"],
-  input[type="email"], 
-  input[type="password"],
-  input[type="number"],
-  input[type="search"],
-  input[type="url"],
-  input[type="tel"],
-  textarea,
-  select {
-    background-color: white !important;
-    color: black !important;
-    border-color: #d1d5db !important;
-  }
-  
-  input[type="text"]::placeholder,
-  input[type="email"]::placeholder,
-  input[type="password"]::placeholder,
-  input[type="number"]::placeholder,
-  input[type="search"]::placeholder,
-  input[type="url"]::placeholder,
-  input[type="tel"]::placeholder,
-  textarea::placeholder {
-    color: #6b7280 !important;
-  }
+/* Force white backgrounds for form inputs always */
+input[type="text"],
+input[type="email"], 
+input[type="password"],
+input[type="number"],
+input[type="search"],
+input[type="url"],
+input[type="tel"],
+textarea,
+select {
+  background-color: white !important;
+  color: black !important;
+  border-color: #d1d5db !important;
 }
 
-/* Form input base styles with forced white backgrounds in dark mode */
+input[type="text"]::placeholder,
+input[type="email"]::placeholder,
+input[type="password"]::placeholder,
+input[type="number"]::placeholder,
+input[type="search"]::placeholder,
+input[type="url"]::placeholder,
+input[type="tel"]::placeholder,
+textarea::placeholder {
+  color: #6b7280 !important;
+}
+
+/* Form input base styles - always light appearance */
 @layer components {
   .form-input {
-    @apply block w-full rounded-md border-gray-300 dark:border-gray-600 
-           bg-white dark:bg-white 
-           text-gray-900 dark:text-gray-900
-           placeholder-gray-500 dark:placeholder-gray-500
+    @apply block w-full rounded-md border-gray-300 
+           bg-white 
+           text-gray-900
+           placeholder-gray-500
            shadow-sm 
-           focus:border-primary-500 dark:focus:border-primary-400
-           focus:ring-primary-500 dark:focus:ring-primary-400
+           focus:border-primary-500
+           focus:ring-primary-500
            px-3 py-2;
   }
   
   .form-textarea {
-    @apply block w-full rounded-md border-gray-300 dark:border-gray-600 
-           bg-white dark:bg-white 
-           text-gray-900 dark:text-gray-900
-           placeholder-gray-500 dark:placeholder-gray-500
+    @apply block w-full rounded-md border-gray-300 
+           bg-white 
+           text-gray-900
+           placeholder-gray-500
            shadow-sm 
-           focus:border-primary-500 dark:focus:border-primary-400
-           focus:ring-primary-500 dark:focus:ring-primary-400
+           focus:border-primary-500
+           focus:ring-primary-500
            px-3 py-2;
   }
   
   .form-select {
-    @apply block w-full rounded-md border-gray-300 dark:border-gray-600 
-           bg-white dark:bg-white 
-           text-gray-900 dark:text-gray-900
+    @apply block w-full rounded-md border-gray-300 
+           bg-white 
+           text-gray-900
            shadow-sm 
-           focus:border-primary-500 dark:focus:border-primary-400
-           focus:ring-primary-500 dark:focus:ring-primary-400
+           focus:border-primary-500
+           focus:ring-primary-500
            px-3 py-2;
   }
   
   .card {
-    @apply bg-white dark:bg-gray-800 
-           border border-gray-200 dark:border-gray-700 
+    @apply bg-white 
+           border border-gray-200 
            shadow rounded-lg;
   }
   
   .card-header {
-    @apply bg-gray-50 dark:bg-gray-700 
-           border-b border-gray-200 dark:border-gray-600;
+    @apply bg-gray-50 
+           border-b border-gray-200;
   }
   
   .form-label {
-    @apply block text-sm font-medium text-gray-700 dark:text-gray-300;
+    @apply block text-sm font-medium text-gray-700;
   }
   
   .form-help {
-    @apply text-sm text-gray-500 dark:text-gray-400;
+    @apply text-sm text-gray-500;
   }
 }
