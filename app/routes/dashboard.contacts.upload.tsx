@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { useLoaderData, useActionData, Form } from "@remix-run/react";
+import { useState, useEffect } from "react";
+import { useLoaderData, useActionData, Form, useNavigation } from "@remix-run/react";
 import type { LoaderFunctionArgs, ActionFunctionArgs } from "@remix-run/cloudflare";
 import { getAuth } from "@clerk/remix/ssr.server";
 import { redirect, json } from "@remix-run/cloudflare";
@@ -558,6 +558,7 @@ export async function action(args: ActionFunctionArgs) {
 export default function ContactUpload() {
   const { orgId, existingCustomFields } = useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>();
+  const navigation = useNavigation();
   const [csvFile, setCsvFile] = useState<File | null>(null);
   const [listName, setListName] = useState("");
   const [hasHeaders, setHasHeaders] = useState(true);
@@ -565,6 +566,13 @@ export default function ContactUpload() {
   const [customKeys, setCustomKeys] = useState<string[]>(existingCustomFields || []);
   const [newCustomKeys, setNewCustomKeys] = useState<Record<string, string>>({});
   const [showCustomInput, setShowCustomInput] = useState<Record<string, boolean>>({});
+  
+  // Determine loading state and current step
+  const isSubmitting = navigation.state === "submitting";
+  const formData = navigation.formData;
+  const step = formData?.get("step") as string;
+  const isPreviewStep = isSubmitting && step === "preview";
+  const isImportStep = isSubmitting && step === "import";
 
   const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -572,6 +580,22 @@ export default function ContactUpload() {
       setCsvFile(file);
     }
   };
+
+  // Loading component
+  const LoadingSpinner = ({ message }: { message: string }) => (
+    <div className="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50">
+      <div className="relative top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 bg-white rounded-lg shadow-xl p-8 max-w-md mx-auto">
+        <div className="flex flex-col items-center space-y-4">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-600"></div>
+          <div className="text-center">
+            <h3 className="text-lg font-medium text-gray-900 mb-2">Processing CSV Upload</h3>
+            <p className="text-sm text-gray-600">{message}</p>
+            <p className="text-xs text-gray-500 mt-2">This may take a few minutes for large files...</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
 
   if (actionData && 'step' in actionData && actionData.step === "complete") {
     return (
@@ -618,6 +642,7 @@ export default function ContactUpload() {
   if (actionData && 'step' in actionData && actionData.step === "mapping") {
     return (
       <div className="px-4 py-6 sm:px-0">
+        {isImportStep && <LoadingSpinner message="Processing contacts and checking for duplicates..." />}
         <div className="max-w-4xl mx-auto">
           <h1 className="text-2xl font-semibold text-gray-900 mb-6">Map CSV Columns</h1>
           <p className="text-gray-600 mb-6">
@@ -890,9 +915,17 @@ export default function ContactUpload() {
                 </a>
                 <button
                   type="submit"
-                  className="px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-primary-500 hover:bg-primary-600"
+                  disabled={isImportStep}
+                  className="px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-primary-500 hover:bg-primary-600 disabled:bg-gray-400 disabled:cursor-not-allowed flex items-center"
                 >
-                  Import Contacts
+                  {isImportStep ? (
+                    <>
+                      <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                      Processing...
+                    </>
+                  ) : (
+                    "Import Contacts"
+                  )}
                 </button>
               </div>
             </div>
@@ -904,6 +937,7 @@ export default function ContactUpload() {
 
   return (
     <div className="px-4 py-6 sm:px-0">
+      {isPreviewStep && <LoadingSpinner message="Reading and analyzing your CSV file..." />}
       <div className="max-w-2xl mx-auto">
         <h1 className="text-2xl font-semibold text-gray-900 mb-6">Upload Contacts</h1>
         <p className="text-gray-600 mb-6">
@@ -973,10 +1007,17 @@ export default function ContactUpload() {
           <div className="flex justify-end">
             <button
               type="submit"
-              disabled={!csvFile || !listName}
-              className="px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-primary-500 hover:bg-primary-600 disabled:bg-gray-400 disabled:cursor-not-allowed"
+              disabled={!csvFile || !listName || isPreviewStep}
+              className="px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-primary-500 hover:bg-primary-600 disabled:bg-gray-400 disabled:cursor-not-allowed flex items-center"
             >
-              Preview Import
+              {isPreviewStep ? (
+                <>
+                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                  Processing...
+                </>
+              ) : (
+                "Preview Import"
+              )}
             </button>
           </div>
         </Form>

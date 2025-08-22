@@ -335,13 +335,86 @@ export class ContactService {
 
   async findContactsByEmailsOrPhones(orgId: string, emailsAndPhones: Array<{email?: string, phone?: string}>) {
     const results = [];
+    const BATCH_SIZE = 100; // Process in smaller batches to avoid timeouts
     
-    for (const {email, phone} of emailsAndPhones) {
-      const contact = await this.findContactByEmailOrPhone(orgId, email, phone);
-      if (contact) {
-        results.push({ email, phone, contact });
+    console.log("🔍 DUPLICATE CHECK DEBUG - Starting batch processing:", {
+      totalContacts: emailsAndPhones.length,
+      batchSize: BATCH_SIZE,
+      expectedBatches: Math.ceil(emailsAndPhones.length / BATCH_SIZE)
+    });
+    
+    // Get search index once for all lookups (much more efficient)
+    const searchKey = this.getContactSearchKey(orgId);
+    let searchData = await this.cache.get(searchKey);
+    
+    if (!searchData) {
+      console.log("⚠️ DUPLICATE CHECK DEBUG - No search index found, rebuilding...");
+      await this.rebuildContactIndexes(orgId);
+      searchData = await this.cache.get(searchKey);
+    }
+    
+    const searchIndex = searchData ? JSON.parse(searchData) : {};
+    const indexSize = Object.keys(searchIndex).length;
+    
+    console.log("✅ DUPLICATE CHECK DEBUG - Search index loaded:", {
+      indexSize,
+      hasIndex: !!searchData
+    });
+    
+    // Process in batches to avoid memory/timeout issues
+    for (let i = 0; i < emailsAndPhones.length; i += BATCH_SIZE) {
+      const batch = emailsAndPhones.slice(i, i + BATCH_SIZE);
+      const batchStartTime = Date.now();
+      
+      console.log(`🔍 DUPLICATE CHECK DEBUG - Processing batch ${Math.floor(i / BATCH_SIZE) + 1}:`, {
+        batchStart: i,
+        batchEnd: Math.min(i + BATCH_SIZE, emailsAndPhones.length),
+        batchSize: batch.length
+      });
+      
+      // Check each item in the batch against the search index (in memory, very fast)
+      const batchPromises = batch.map(async ({email, phone}) => {
+        if (!email && !phone) return null;
+        
+        // Search in the index first (fast in-memory lookup)
+        for (const [contactId, indexEntry] of Object.entries(searchIndex) as [string, any][]) {
+          const emailMatch = email && indexEntry.email && indexEntry.email.toLowerCase() === email.toLowerCase();
+          const phoneMatch = phone && indexEntry.phone && indexEntry.phone === phone;
+          
+          if (emailMatch || phoneMatch) {
+            // Found a match, get the full contact
+            const contact = await this.getContact(orgId, contactId);
+            if (contact) {
+              return { email, phone, contact };
+            }
+          }
+        }
+        
+        return null;
+      });
+      
+      const batchResults = await Promise.all(batchPromises);
+      const validResults = batchResults.filter(Boolean);
+      results.push(...validResults);
+      
+      const batchTime = Date.now() - batchStartTime;
+      console.log(`✅ DUPLICATE CHECK DEBUG - Batch ${Math.floor(i / BATCH_SIZE) + 1} complete:`, {
+        batchProcessingTime: batchTime,
+        duplicatesFound: validResults.length,
+        avgTimePerContact: Math.round(batchTime / batch.length * 100) / 100
+      });
+      
+      // Small delay between batches to avoid overwhelming the system
+      if (i + BATCH_SIZE < emailsAndPhones.length) {
+        await new Promise(resolve => setTimeout(resolve, 10));
       }
     }
+    
+    console.log("✅ DUPLICATE CHECK DEBUG - All batches complete:", {
+      totalChecked: emailsAndPhones.length,
+      totalDuplicatesFound: results.length,
+      duplicateRate: Math.round((results.length / emailsAndPhones.length) * 100)
+    });
     
     return results;
   }
