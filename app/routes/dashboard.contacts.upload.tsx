@@ -131,19 +131,13 @@ export async function action(args: ActionFunctionArgs) {
         Object.assign(fieldMapping, JSON.parse(mappingData));
       }
       
-      console.log("Field mapping debug:", {
-        mappingDataExists: !!mappingData,
-        fieldMappingKeys: Object.keys(fieldMapping),
-        fieldMappingValues: Object.values(fieldMapping),
-        sampleContact: rows[0],
-        sampleContactKeys: Object.keys(rows[0] || {}),
-        fullMapping: fieldMapping
+      console.log("🔍 ASYNC UPLOAD - Starting import with field mapping:", {
+        totalRows: rows.length,
+        fieldMapping,
+        listName
       });
 
-      // Debug each contact creation
-      console.log("Creating contacts with field mapping:", fieldMapping);
-
-      // Create contact list
+      // Create contact list first
       const listId = generateId();
       await contactListService.createContactList(orgId, listId, {
         name: listName,
@@ -163,25 +157,19 @@ export async function action(args: ActionFunctionArgs) {
         }
       }
 
-      // Process contacts in optimized bulk operations
-      const contactIds: string[] = [];
-      const errors: Array<{ row: number; error: string }> = [];
-      const duplicatesUpdated: string[] = [];
-      const skippedDuplicates: string[] = [];
-      
-      console.log("🔍 CSV UPLOAD DEBUG - Starting contact processing:", {
+      console.log("🔍 ASYNC UPLOAD - Processing contacts for validation:", {
         totalRows: rows.length,
-        fieldMapping,
         listId,
         reactivateDuplicates
       });
       
-      // First pass: validate and prepare all contacts
+      // Validate and prepare all contacts (sync - this is fast)
       const validContacts: Array<{
         rowIndex: number;
         contact: any;
         contactId: string;
       }> = [];
+      const errors: Array<{ row: number; error: string }> = [];
       
       const validationStartTime = Date.now();
       
@@ -300,9 +288,9 @@ export async function action(args: ActionFunctionArgs) {
         });
       }
 
-      // Second pass: bulk duplicate checking
+      // Fast duplicate check (still sync, but much lighter)
       const duplicateCheckStartTime = Date.now();
-      console.log("🔍 CSV UPLOAD DEBUG - Starting duplicate check:", {
+      console.log("🔍 ASYNC UPLOAD - Starting duplicate check:", {
         validContactsCount: validContacts.length
       });
       
@@ -315,11 +303,10 @@ export async function action(args: ActionFunctionArgs) {
         const existingContacts = await contactService.findContactsByEmailsOrPhones(orgId, emailsAndPhones);
         const duplicateCheckTime = Date.now() - duplicateCheckStartTime;
         
-        console.log("✅ CSV UPLOAD DEBUG - Duplicate check complete:", {
+        console.log("✅ ASYNC UPLOAD - Duplicate check complete:", {
           contactsChecked: validContacts.length,
           duplicatesFound: existingContacts.length,
-          duplicateCheckTimeMs: duplicateCheckTime,
-          avgDuplicateCheckTimePerContact: Math.round(duplicateCheckTime / validContacts.length * 100) / 100
+          duplicateCheckTimeMs: duplicateCheckTime
         });
         
         const existingContactMap = new Map();
@@ -329,225 +316,87 @@ export async function action(args: ActionFunctionArgs) {
           if (phone) existingContactMap.set(phone, contact);
         });
 
-        // Third pass: separate new contacts from duplicates
-        const newContacts: Array<{id: string, data: any}> = [];
+        // Separate new contacts from duplicates (lightweight operation)
         const duplicateUpdates: Array<{contact: any, updates: any}> = [];
         
-        const separationStartTime = Date.now();
-      
-      for (const {rowIndex, contact, contactId} of validContacts) {
-        const existingByEmail = contact.email ? existingContactMap.get(contact.email.toLowerCase()) : null;
-        const existingByPhone = contact.phone ? existingContactMap.get(contact.phone) : null;
-        const existingContact = existingByEmail || existingByPhone;
-        
-        if (existingContact) {
-          // Handle duplicate - prepare update
-          const updatedListIds = existingContact.contactListIds || [];
-          if (!updatedListIds.includes(listId)) {
-            updatedListIds.push(listId);
-          }
+        for (const {rowIndex, contact, contactId} of validContacts) {
+          const existingByEmail = contact.email ? existingContactMap.get(contact.email.toLowerCase()) : null;
+          const existingByPhone = contact.phone ? existingContactMap.get(contact.phone) : null;
+          const existingContact = existingByEmail || existingByPhone;
           
-          // Merge metadata
-          const mergedMetadata = { ...existingContact.metadata, ...contact.metadata };
-          
-          const updates: any = {
-            firstName: contact.firstName || existingContact.firstName,
-            lastName: contact.lastName || existingContact.lastName,
-            email: contact.email || existingContact.email,
-            phone: contact.phone || existingContact.phone,
-            metadata: mergedMetadata,
-            contactListIds: updatedListIds
-          };
-          
-          // Reactivate if requested and currently opted out
-          if (reactivateDuplicates && existingContact.optedOut) {
-            updates.optedOut = false;
-            updates.optedOutAt = null;
-          }
-          
-          duplicateUpdates.push({contact: existingContact, updates});
-          
-          if (reactivateDuplicates && existingContact.optedOut) {
-            duplicatesUpdated.push(existingContact.id);
-          } else {
-            skippedDuplicates.push(existingContact.id);
-          }
-        } else {
-          // New contact
-          newContacts.push({
-            id: contactId,
-            data: contact
-          });
-        }
-      }
-
-      const separationTime = Date.now() - separationStartTime;
-      console.log("✅ CSV UPLOAD DEBUG - Contact separation complete:", {
-        totalValidContacts: validContacts.length,
-        newContacts: newContacts.length,
-        duplicateUpdates: duplicateUpdates.length,
-        separationTimeMs: separationTime
-      });
-
-      // Fourth pass: bulk create new contacts
-      if (newContacts.length > 0) {
-        const bulkCreateStartTime = Date.now();
-        console.log("🔍 CSV UPLOAD DEBUG - Starting bulk contact creation:", {
-          contactsToCreate: newContacts.length
-        });
-        
-        try {
-          const bulkResults = await contactService.createContactsBulk(orgId, newContacts);
-          const bulkCreateTime = Date.now() - bulkCreateStartTime;
-          
-          console.log("✅ CSV UPLOAD DEBUG - Bulk contact creation complete:", {
-            contactsCreated: bulkResults.created.length,
-            creationErrors: bulkResults.errors.length,
-            bulkCreateTimeMs: bulkCreateTime,
-            avgCreateTimePerContact: Math.round(bulkCreateTime / newContacts.length * 100) / 100
-          });
-          
-          // Only add successfully created contact IDs
-          contactIds.push(...bulkResults.created);
-          
-          // Handle any bulk creation errors
-          for (const error of bulkResults.errors) {
-            errors.push({ row: -1, error: `Failed to create contact: ${error.error}` });
-          }
-        } catch (error) {
-          console.error("❌ CSV UPLOAD DEBUG - Bulk contact creation failed:", error);
-          errors.push({ row: -1, error: `Bulk contact creation failed: ${error instanceof Error ? error.message : 'Unknown error'}` });
-        }
-      }
-
-      // Fifth pass: update duplicates (can be done in smaller batches)
-      if (duplicateUpdates.length > 0) {
-        const duplicateUpdateStartTime = Date.now();
-        console.log("🔍 CSV UPLOAD DEBUG - Starting duplicate updates:", {
-          duplicatesToUpdate: duplicateUpdates.length
-        });
-        
-        const UPDATE_BATCH_SIZE = 25;
-        
-        try {
-          for (let i = 0; i < duplicateUpdates.length; i += UPDATE_BATCH_SIZE) {
-            const batch = duplicateUpdates.slice(i, i + UPDATE_BATCH_SIZE);
-            const batchStartTime = Date.now();
+          if (existingContact) {
+            // Handle duplicate - prepare update
+            const updatedListIds = existingContact.contactListIds || [];
+            if (!updatedListIds.includes(listId)) {
+              updatedListIds.push(listId);
+            }
             
-            await Promise.all(batch.map(async ({contact, updates}) => {
-              try {
-                await contactService.updateContact(orgId, contact.id, updates);
-              } catch (error) {
-                console.error("❌ CSV UPLOAD DEBUG - Failed to update duplicate contact:", {
-                  contactId: contact.id,
-                  error: error instanceof Error ? error.message : error
-                });
-                errors.push({ row: -1, error: "Failed to update duplicate contact" });
-              }
-            }));
+            // Merge metadata
+            const mergedMetadata = { ...existingContact.metadata, ...contact.metadata };
             
-            const batchTime = Date.now() - batchStartTime;
-            console.log(`✅ CSV UPLOAD DEBUG - Batch ${Math.floor(i / UPDATE_BATCH_SIZE) + 1} complete:`, {
-              batchSize: batch.length,
-              batchTimeMs: batchTime,
-              avgUpdateTimePerContact: Math.round(batchTime / batch.length * 100) / 100
-            });
+            const updates: any = {
+              firstName: contact.firstName || existingContact.firstName,
+              lastName: contact.lastName || existingContact.lastName,
+              email: contact.email || existingContact.email,
+              phone: contact.phone || existingContact.phone,
+              metadata: mergedMetadata,
+              contactListIds: updatedListIds
+            };
+            
+            // Reactivate if requested and currently opted out
+            if (reactivateDuplicates && existingContact.optedOut) {
+              updates.optedOut = false;
+              updates.optedOutAt = null;
+            }
+            
+            duplicateUpdates.push({contact: existingContact, updates});
           }
-          
-          const duplicateUpdateTime = Date.now() - duplicateUpdateStartTime;
-          console.log("✅ CSV UPLOAD DEBUG - All duplicate updates complete:", {
-            totalDuplicatesUpdated: duplicateUpdates.length,
-            duplicateUpdateTimeMs: duplicateUpdateTime
-          });
-        } catch (error) {
-          console.error("❌ CSV UPLOAD DEBUG - Duplicate update process failed:", error);
-          errors.push({ row: -1, error: `Duplicate update failed: ${error instanceof Error ? error.message : 'Unknown error'}` });
         }
-      }
 
-      const overallProcessingTime = Date.now() - startTime;
-      console.log("🔍 CSV UPLOAD DEBUG - Processing summary before list assignment:", {
-        totalProcessingTimeMs: overallProcessingTime,
-        newContactsCreated: newContacts.length,
-        duplicatesUpdated: duplicateUpdates.length,
-        totalErrors: errors.length
-      });
+        console.log("✅ ASYNC UPLOAD - Contact separation complete:", {
+          totalValidContacts: validContacts.length,
+          duplicateUpdates: duplicateUpdates.length
+        });
 
-      // Update contact list with all contact IDs (new + updated duplicates)
-      const listAssignmentStartTime = Date.now();
-      const allContactIds = [
-        ...contactIds, // New contacts
-        ...duplicatesUpdated, // Reactivated duplicates 
-        ...skippedDuplicates // Existing duplicates that were updated
-      ];
-      
-      console.log("🔍 CSV UPLOAD DEBUG - Starting contact list assignment:", {
-        listId,
-        newContactIds: contactIds.length,
-        duplicatesUpdated: duplicatesUpdated.length,
-        skippedDuplicates: skippedDuplicates.length,
-        totalContactsToAssign: allContactIds.length,
-        allContactIdsSample: allContactIds.slice(0, 5),
-        contactIdsSample: contactIds.slice(0, 5),
-        duplicatesUpdatedSample: duplicatesUpdated.slice(0, 5),
-        skippedDuplicatesSample: skippedDuplicates.slice(0, 5)
-      });
-      
-      if (allContactIds.length > 0) {
-        try {
-          await contactListService.updateContactList(orgId, listId, {
-            contactIds: allContactIds
-          });
-          const listAssignmentTime = Date.now() - listAssignmentStartTime;
-          console.log("✅ CSV UPLOAD DEBUG - Contact list assignment successful:", {
-            contactsAssigned: allContactIds.length,
-            listAssignmentTimeMs: listAssignmentTime
-          });
-          
-          // Verify the assignment worked by reading the segment back
-          const updatedSegment = await contactListService.getContactList(orgId, listId);
-          console.log("🔍 CSV UPLOAD DEBUG - Verifying segment assignment:", {
+        // Generate upload ID for tracking
+        const uploadId = generateId();
+        
+        // Start async processing via background API
+        const processingResponse = await fetch('/api/process-upload', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            uploadId,
+            validContacts,
+            duplicateUpdates,
             listId,
-            segmentFound: !!updatedSegment,
-            segmentContactIdsCount: updatedSegment?.contactIds?.length || 0,
-            segmentName: updatedSegment?.name || 'unknown',
-            expectedContactsCount: allContactIds.length,
-            assignmentWorked: (updatedSegment?.contactIds?.length || 0) === allContactIds.length
-          });
-        } catch (error) {
-          console.error("❌ CSV UPLOAD DEBUG - Contact list assignment failed:", {
-            error: error instanceof Error ? error.message : error,
-            contactsToAssign: allContactIds.length,
-            listId
-          });
-          errors.push({ row: -1, error: "Failed to assign contacts to segment" });
+            listName,
+            reactivateDuplicates
+          })
+        });
+
+        if (!processingResponse.ok) {
+          throw new Error('Failed to start background processing');
         }
-      } else {
-        console.log("⚠️ CSV UPLOAD DEBUG - No contact IDs to assign to segment");
-      }
 
-      const totalTime = Date.now() - startTime;
-      console.log("🎉 CSV UPLOAD DEBUG - COMPLETE:", {
-        totalTimeMs: totalTime,
-        totalTimeSec: Math.round(totalTime / 1000 * 100) / 100,
-        originalRowCount: rows.length,
-        finalSuccessfulContacts: contactIds.length,
-        finalDuplicatesUpdated: duplicatesUpdated.length,
-        finalSkippedDuplicates: skippedDuplicates.length,
-        finalErrors: errors.length,
-        avgTimePerOriginalRow: Math.round(totalTime / rows.length * 100) / 100
-      });
+        const processingResult = await processingResponse.json();
+        
+        console.log("🚀 ASYNC UPLOAD - Background processing started:", {
+          uploadId,
+          totalContacts: validContacts.length,
+          duplicates: duplicateUpdates.length
+        });
 
-      return json({
-        step: "complete",
-        listId,
-        totalRows: rows.length,
-        successfulRows: contactIds.length,
-        duplicatesUpdated: duplicatesUpdated.length,
-        skippedDuplicates: skippedDuplicates.length,
-        failedRows: errors.length,
-        errors: errors.slice(0, 10) // Limit errors shown
-      });
+        // Return immediately with upload ID for progress tracking
+        return json({
+          step: "processing",
+          uploadId,
+          listId,
+          totalRows: rows.length,
+          validContacts: validContacts.length,
+          duplicates: duplicateUpdates.length,
+          message: "Processing started in background"
+        });
       
       } catch (error) {
         console.error("❌ CSV UPLOAD DEBUG - Duplicate check failed:", {
@@ -585,12 +434,60 @@ export default function ContactUpload() {
   const [newCustomKeys, setNewCustomKeys] = useState<Record<string, string>>({});
   const [showCustomInput, setShowCustomInput] = useState<Record<string, boolean>>({});
   
+  // Async processing state
+  const [uploadStatus, setUploadStatus] = useState<'idle' | 'processing' | 'complete' | 'failed'>('idle');
+  const [progress, setProgress] = useState({ processed: 0, total: 0, stage: '', errors: [] });
+  const [uploadId, setUploadId] = useState<string | null>(null);
+  
   // Determine loading state and current step
   const isSubmitting = navigation.state === "submitting";
   const formData = navigation.formData;
   const step = formData?.get("step") as string;
   const isPreviewStep = isSubmitting && step === "preview";
   const isImportStep = isSubmitting && step === "import";
+  
+  // Handle async processing results
+  useEffect(() => {
+    if (actionData && 'step' in actionData && actionData.step === 'processing') {
+      setUploadStatus('processing');
+      setUploadId(actionData.uploadId as string);
+      setProgress({ processed: 0, total: actionData.totalRows, stage: 'Starting...', errors: [] });
+    }
+  }, [actionData]);
+  
+  // Poll for progress updates when processing
+  useEffect(() => {
+    if (uploadStatus === 'processing' && uploadId) {
+      const interval = setInterval(async () => {
+        try {
+          const response = await fetch(`/api/upload-status/${uploadId}`);
+          if (response.ok) {
+            const status = await response.json();
+            setProgress({
+              processed: status.processed || 0,
+              total: status.total || 0,
+              stage: status.stage || 'Processing...',
+              errors: status.errors || []
+            });
+            
+            if (status.status === 'complete') {
+              setUploadStatus('complete');
+              clearInterval(interval);
+              // Update actionData with final results
+              window.location.reload(); // Simple way to show results
+            } else if (status.status === 'failed') {
+              setUploadStatus('failed');
+              clearInterval(interval);
+            }
+          }
+        } catch (error) {
+          console.error('Error polling upload status:', error);
+        }
+      }, 1000);
+      
+      return () => clearInterval(interval);
+    }
+  }, [uploadStatus, uploadId]);
 
   const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -599,7 +496,7 @@ export default function ContactUpload() {
     }
   };
 
-  // Loading component
+  // Loading component with progress
   const LoadingSpinner = ({ message }: { message: string }) => (
     <div className="fixed inset-0 bg-gray-600 bg-opacity-50 z-50 flex items-center justify-center">
       <div className="bg-white rounded-lg shadow-xl p-8 max-w-md w-full mx-4">
@@ -614,6 +511,61 @@ export default function ContactUpload() {
       </div>
     </div>
   );
+  
+  // Async progress component
+  const AsyncProgressModal = () => (
+    <div className="fixed inset-0 bg-gray-600 bg-opacity-50 z-50 flex items-center justify-center">
+      <div className="bg-white rounded-lg shadow-xl p-8 max-w-md w-full mx-4">
+        <div className="flex flex-col items-center space-y-4">
+          <div className="w-full">
+            <div className="flex justify-between text-sm text-gray-600 mb-2">
+              <span>{progress.stage}</span>
+              <span>{progress.processed}/{progress.total}</span>
+            </div>
+            <div className="w-full bg-gray-200 rounded-full h-3">
+              <div 
+                className="bg-blue-600 h-3 rounded-full transition-all duration-500 ease-out"
+                style={{width: `${progress.total > 0 ? (progress.processed / progress.total) * 100 : 0}%`}}
+              ></div>
+            </div>
+            <div className="mt-2 text-center">
+              <h3 className="text-lg font-medium text-gray-900 mb-1">Processing Contacts</h3>
+              <p className="text-sm text-gray-600">Please keep this page open while we process your upload.</p>
+              <p className="text-xs text-gray-500 mt-2">This process runs in the background and may take several minutes.</p>
+              {progress.errors && progress.errors.length > 0 && (
+                <div className="mt-3 p-2 bg-yellow-50 rounded text-xs text-yellow-800">
+                  {progress.errors.length} errors encountered during processing
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+  
+  // Show async progress modal
+  if (uploadStatus === 'processing') {
+    return (
+      <div className="px-4 py-6 sm:px-0">
+        <AsyncProgressModal />
+        <div className="max-w-2xl mx-auto">
+          <h1 className="text-2xl font-semibold text-gray-900 mb-6">Processing Upload</h1>
+          <div className="bg-blue-50 border border-blue-200 rounded-lg p-6">
+            <div className="flex">
+              <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-blue-600 mt-1"></div>
+              <div className="ml-3">
+                <h3 className="text-lg font-medium text-blue-800">Upload In Progress</h3>
+                <p className="mt-2 text-sm text-blue-700">
+                  Your contacts are being processed in the background. Please keep this page open to monitor progress.
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   if (actionData && 'step' in actionData && actionData.step === "complete") {
     return (
