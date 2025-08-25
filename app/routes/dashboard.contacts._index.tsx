@@ -621,8 +621,8 @@ export default function ContactsIndex() {
         </form>
       </div>
 
-      {/* Debug Section - Hidden for production use */}
-      <div className="max-w-lg" style={{ display: 'none' }}>
+      {/* Debug Section - Visible for development */}
+      <div className="max-w-lg">
         <div className="rounded-lg bg-red-50 border border-red-200 p-4">
           <div className="flex items-center justify-between">
             <div>
