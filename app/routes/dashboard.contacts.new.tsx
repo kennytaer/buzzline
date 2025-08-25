@@ -5,6 +5,8 @@ import { redirect, json } from "@remix-run/cloudflare";
 import { getContactService } from "~/lib/services/contact.server";
 import { getKVService } from "~/lib/kv.server"; // TODO: Remove once custom fields are migrated
 import { isValidEmail, isValidPhone, formatPhoneNumber } from "~/lib/utils";
+import { CustomFieldSelector } from "~/components/CustomFieldSelector";
+import { useCustomFields } from "~/hooks/useCustomFields";
 
 export async function loader(args: LoaderFunctionArgs) {
   const { userId, orgId } = await getAuth(args);
@@ -118,10 +120,29 @@ export async function action(args: ActionFunctionArgs) {
 }
 
 export default function NewContact() {
-  const { customFields } = useLoaderData<typeof loader>();
+  const { orgId, customFields } = useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>();
   const navigation = useNavigation();
   const isSubmitting = navigation.state === "submitting";
+
+  // Custom fields management
+  const customFieldsManager = useCustomFields({
+    initialFields: customFields || [],
+    orgId,
+    onFieldAdded: async (fieldName) => {
+      // Optionally sync with server immediately (or wait for form submit)
+      try {
+        await fetch('/api/custom-fields', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ orgId, fieldName })
+        });
+      } catch (error) {
+        console.warn('Failed to sync custom field immediately:', error);
+        // Form submission will handle this as fallback
+      }
+    }
+  });
 
   return (
     <div className="space-y-6">
@@ -234,29 +255,59 @@ export default function NewContact() {
               </div>
             </div>
 
-            {customFields.length > 0 && (
-              <div>
-                <h3 className="text-lg font-medium text-gray-900 mb-4">Custom Fields</h3>
+            {/* Custom Fields Section */}
+            <div>
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-lg font-medium text-gray-900">Custom Fields</h3>
+                <CustomFieldSelector
+                  existingFields={customFieldsManager.availableFields}
+                  onFieldSelect={customFieldsManager.addField}
+                  onNewFieldCreate={customFieldsManager.addField}
+                  placeholder="Add custom field"
+                  className="w-64"
+                />
+              </div>
+              
+              {customFieldsManager.activeFields.length > 0 ? (
                 <div className="grid grid-cols-1 gap-6 sm:grid-cols-2">
-                  {customFields.map((fieldName: string) => (
-                    <div key={fieldName}>
-                      <label htmlFor={`metadata_${fieldName}`} className="form-label">
-                        {fieldName.replace(/_/g, ' ')}
-                      </label>
-                      <div className="mt-1">
-                        <input
-                          type="text"
-                          name={`metadata_${fieldName}`}
-                          id={`metadata_${fieldName}`}
-                          className="form-input"
-                          placeholder={`Enter ${fieldName.replace(/_/g, ' ')}`}
-                        />
+                  {customFieldsManager.activeFields.map((fieldName) => (
+                    <div key={fieldName} className="relative">
+                      <div className="flex items-center gap-2 mb-1">
+                        <label htmlFor={`metadata_${fieldName}`} className="form-label">
+                          {fieldName.replace(/_/g, ' ')}
+                        </label>
+                        <button
+                          type="button"
+                          onClick={() => customFieldsManager.removeField(fieldName)}
+                          className="text-gray-400 hover:text-red-500 text-sm"
+                          title="Remove field"
+                        >
+                          ×
+                        </button>
                       </div>
+                      <input
+                        type="text"
+                        name={`metadata_${fieldName}`}
+                        id={`metadata_${fieldName}`}
+                        value={customFieldsManager.fieldValues[fieldName] || ''}
+                        onChange={(e) => customFieldsManager.updateFieldValue(fieldName, e.target.value)}
+                        className="form-input"
+                        placeholder={`Enter ${fieldName.replace(/_/g, ' ')}`}
+                      />
                     </div>
                   ))}
                 </div>
-              </div>
-            )}
+              ) : (
+                <div className="text-center py-6 bg-gray-50 rounded-lg border-2 border-dashed border-gray-300">
+                  <p className="text-sm text-gray-500">
+                    No custom fields added yet. Use the dropdown above to add custom fields specific to your business.
+                  </p>
+                  <p className="text-xs text-gray-400 mt-1">
+                    Example: Vehicle Year, Job Title, Company Size, etc.
+                  </p>
+                </div>
+              )}
+            </div>
 
             <div className="pt-5">
               <div className="flex justify-end space-x-3">

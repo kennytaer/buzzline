@@ -8,6 +8,7 @@ import { getCampaignService } from "~/lib/services/campaign.server";
 import { getContactListService } from "~/lib/services/contactlist.server";
 import { getContactService } from "~/lib/services/contact.server";
 import { getSalesTeamService } from "~/lib/sales-team.server";
+import { getKVService } from "~/lib/kv.server";
 import { generateId } from "~/lib/utils";
 
 export async function loader(args: LoaderFunctionArgs) {
@@ -20,9 +21,13 @@ export async function loader(args: LoaderFunctionArgs) {
   try {
     const contactListService = getContactListService(args.context);
     const salesTeamService = getSalesTeamService(args.context);
+    const kvService = getKVService(args.context);
     
-    // Get contact lists 
-    const rawContactLists = await contactListService.listContactLists(orgId);
+    // Get contact lists and custom fields in parallel
+    const [rawContactLists, customFields] = await Promise.all([
+      contactListService.listContactLists(orgId),
+      kvService.getCustomFields(orgId)
+    ]);
     
     console.log("DEBUG: Campaign loader - Raw contact lists:", rawContactLists.length, rawContactLists);
     
@@ -57,6 +62,7 @@ export async function loader(args: LoaderFunctionArgs) {
     return json({ 
       orgId, 
       contactLists: contactLists || [],
+      customFields: customFields || [],
       defaultSignature: {
         salesPersonName: '',
         salesPersonTitle: '',
@@ -70,6 +76,7 @@ export async function loader(args: LoaderFunctionArgs) {
     return json({ 
       orgId, 
       contactLists: [],
+      customFields: [],
       defaultSignature: {
         salesPersonName: '',
         salesPersonTitle: '',
@@ -183,7 +190,7 @@ export async function action(args: ActionFunctionArgs) {
 }
 
 export default function NewCampaign() {
-  const { contactLists, defaultSignature, salesTeam } = useLoaderData<typeof loader>();
+  const { contactLists, customFields, defaultSignature, salesTeam } = useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>();
   
   // Check if we're in edit mode by reading URL parameters
@@ -206,6 +213,16 @@ export default function NewCampaign() {
   const [smsMessage, setSmsMessage] = useState(searchParams.get('smsMessage') || "");
   const [smsSegments, setSmsSegments] = useState(1);
   const [selectedTeamMember, setSelectedTeamMember] = useState<string>("");
+
+  // Helper function to convert field names to camelCase for variable display
+  const toCamelCase = (str: string): string => {
+    return str
+      .replace(/(?:^\w|[A-Z]|\b\w)/g, (word, index) => {
+        return index === 0 ? word.toLowerCase() : word.toUpperCase();
+      })
+      .replace(/\s+/g, '')
+      .replace(/[^a-zA-Z0-9]/g, '');
+  };
 
   // Calculate SMS segments based on message length and content (Twilio rules)
   const calculateSmsSegments = (message: string): number => {
@@ -649,16 +666,33 @@ export default function NewCampaign() {
                   </div>
                   <div className="mb-2 text-xs text-gray-500 bg-primary-50 p-2 rounded">
                     <div className="mb-1"><strong>Available variables:</strong></div>
-                    <div className="grid grid-cols-2 gap-2 mt-1">
+                    <div className="grid grid-cols-1 gap-2 mt-1 lg:grid-cols-2">
                       <div>
+                        <div className="font-medium text-gray-700 mb-1">Contact Variables:</div>
                         • <code>{`{firstName}`}</code> - Contact's first name<br/>
                         • <code>{`{lastName}`}</code> - Contact's last name<br/>
                         • <code>{`{email}`}</code> - Contact's email address<br/>
+                        • <code>{`{phone}`}</code> - Contact's phone number<br/>
                         • <code>{`{unsubscribeUrl}`}</code> - Unsubscribe link
+                        
+                        {customFields.length > 0 && (
+                          <>
+                            <div className="font-medium text-gray-700 mt-2 mb-1">Custom Fields:</div>
+                            {customFields.slice(0, 4).map((field: string) => (
+                              <span key={field}>
+                                • <code>{`{${toCamelCase(field)}}`}</code> - {field}<br/>
+                              </span>
+                            ))}
+                            {customFields.length > 4 && (
+                              <span className="text-gray-400">... and {customFields.length - 4} more</span>
+                            )}
+                          </>
+                        )}
                       </div>
                       <div>
                         {campaignMode === "sales" ? (
                           <>
+                            <div className="font-medium text-gray-700 mb-1">Sales Team Variables:</div>
                             • <code>{`{salesTeamFirstName}`}</code> - Sales rep's first name<br/>
                             • <code>{`{salesTeamLastName}`}</code> - Sales rep's last name<br/>
                             • <code>{`{salesTeamEmail}`}</code> - Sales rep's email<br/>
@@ -667,13 +701,20 @@ export default function NewCampaign() {
                           </>
                         ) : (
                           <>
-                            • <strong>Custom Fields:</strong> Use field names without spaces<br/>
+                            <div className="font-medium text-gray-700 mb-1">Notes:</div>
+                            • Use exact field names or camelCase versions<br/>
                             • Example: <code>{`{vehicleYear}`}</code> for "Vehicle Year"<br/>
-                            • <strong>Note:</strong> Email signature is automatically added
+                            • Email signature is automatically added<br/>
+                            • Both <code>{`{field}`}</code> and <code>{`{{field}}`}</code> syntax work
                           </>
                         )}
                       </div>
                     </div>
+                    {customFields.length === 0 && (
+                      <div className="mt-2 p-2 bg-blue-50 border border-blue-200 rounded text-blue-800">
+                        💡 <strong>Tip:</strong> Add custom fields when creating contacts to use them as variables here!
+                      </div>
+                    )}
                   </div>
 
                   {emailEditorMode === "visual" ? (
@@ -858,10 +899,21 @@ export default function NewCampaign() {
                   Message *
                 </label>
                 <div className="mb-2 text-xs text-gray-500 bg-primary-50 p-2 rounded">
-                  <strong>Available variables:</strong> {`{firstName}`}, {`{lastName}`}
-                  {campaignMode === "sales" && (
-                    <>, {`{salesTeamFirstName}`}, {`{salesTeamLastName}`}, {`{salesTeamPhone}`}</>
-                  )}
+                  <div className="mb-1"><strong>Available variables:</strong></div>
+                  <div>
+                    <strong>Contact:</strong> {`{firstName}`}, {`{lastName}`}, {`{email}`}, {`{phone}`}
+                    {campaignMode === "sales" && (
+                      <>
+                        <br/><strong>Sales Team:</strong> {`{salesTeamFirstName}`}, {`{salesTeamLastName}`}, {`{salesTeamPhone}`}, {`{salesTeamTitle}`}
+                      </>
+                    )}
+                    {customFields.length > 0 && (
+                      <>
+                        <br/><strong>Custom Fields:</strong> {customFields.slice(0, 3).map((field: string) => `{${toCamelCase(field)}}`).join(', ')}
+                        {customFields.length > 3 && ` + ${customFields.length - 3} more`}
+                      </>
+                    )}
+                  </div>
                 </div>
                 <textarea
                   name="smsMessage"
