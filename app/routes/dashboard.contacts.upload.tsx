@@ -288,115 +288,88 @@ export async function action(args: ActionFunctionArgs) {
         });
       }
 
-      // Fast duplicate check (still sync, but much lighter)
-      const duplicateCheckStartTime = Date.now();
-      console.log("🔍 ASYNC UPLOAD - Starting duplicate check:", {
-        validContactsCount: validContacts.length
+      console.log("✅ ASYNC UPLOAD - Validation complete, skipping sync duplicate check:", {
+        totalValidContacts: validContacts.length,
+        message: "Duplicate checking will be handled in background processing"
       });
-      
-      const emailsAndPhones = validContacts.map(({contact}) => ({
-        email: contact.email || undefined,
-        phone: contact.phone || undefined
-      }));
-      
-      try {
-        const existingContacts = await contactService.findContactsByEmailsOrPhones(orgId, emailsAndPhones);
-        const duplicateCheckTime = Date.now() - duplicateCheckStartTime;
-        
-        console.log("✅ ASYNC UPLOAD - Duplicate check complete:", {
-          contactsChecked: validContacts.length,
-          duplicatesFound: existingContacts.length,
-          duplicateCheckTimeMs: duplicateCheckTime
-        });
-        
-        const existingContactMap = new Map();
-        existingContacts.forEach((item: any) => {
-          const { email, phone, contact } = item;
-          if (email) existingContactMap.set(email.toLowerCase(), contact);
-          if (phone) existingContactMap.set(phone, contact);
-        });
-
-        // Separate new contacts from duplicates (lightweight operation)
-        const duplicateUpdates: Array<{contact: any, updates: any}> = [];
-        
-        for (const {rowIndex, contact, contactId} of validContacts) {
-          const existingByEmail = contact.email ? existingContactMap.get(contact.email.toLowerCase()) : null;
-          const existingByPhone = contact.phone ? existingContactMap.get(contact.phone) : null;
-          const existingContact = existingByEmail || existingByPhone;
-          
-          if (existingContact) {
-            // Handle duplicate - prepare update
-            const updatedListIds = existingContact.contactListIds || [];
-            if (!updatedListIds.includes(listId)) {
-              updatedListIds.push(listId);
-            }
-            
-            // Merge metadata
-            const mergedMetadata = { ...existingContact.metadata, ...contact.metadata };
-            
-            const updates: any = {
-              firstName: contact.firstName || existingContact.firstName,
-              lastName: contact.lastName || existingContact.lastName,
-              email: contact.email || existingContact.email,
-              phone: contact.phone || existingContact.phone,
-              metadata: mergedMetadata,
-              contactListIds: updatedListIds
-            };
-            
-            // Reactivate if requested and currently opted out
-            if (reactivateDuplicates && existingContact.optedOut) {
-              updates.optedOut = false;
-              updates.optedOutAt = null;
-            }
-            
-            duplicateUpdates.push({contact: existingContact, updates});
-          }
-        }
-
-        console.log("✅ ASYNC UPLOAD - Contact separation complete:", {
-          totalValidContacts: validContacts.length,
-          duplicateUpdates: duplicateUpdates.length
-        });
 
         // Generate upload ID for tracking
         const uploadId = generateId();
         
-        // Start async processing via background API
-        const processingResponse = await fetch('/api/process-upload', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            uploadId,
-            validContacts,
-            duplicateUpdates,
-            listId,
-            listName,
-            reactivateDuplicates
-          })
-        });
-
-        if (!processingResponse.ok) {
-          throw new Error('Failed to start background processing');
-        }
-
-        const processingResult = await processingResponse.json();
-        
-        console.log("🚀 ASYNC UPLOAD - Background processing started:", {
+        console.log("🚀 ASYNC UPLOAD - Starting background processing:", {
           uploadId,
           totalContacts: validContacts.length,
-          duplicates: duplicateUpdates.length
-        });
-
-        // Return immediately with upload ID for progress tracking
-        return json({
-          step: "processing",
-          uploadId,
           listId,
-          totalRows: rows.length,
-          validContacts: validContacts.length,
-          duplicates: duplicateUpdates.length,
-          message: "Processing started in background"
+          listName
         });
+        
+        // Start async processing via background API  
+        try {
+          // Create a new request to the background API
+          const backgroundRequest = new Request('/api/process-upload', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              uploadId,
+              validContacts,
+              listId,
+              listName,
+              reactivateDuplicates
+            })
+          });
+          
+          // Import the action from the background processing route
+          const { action: processUploadAction } = await import('./api.process-upload');
+          const processingResponse = await processUploadAction({ 
+            request: backgroundRequest, 
+            context: args.context 
+          });
+
+          if (!processingResponse) {
+            throw new Error('No response from background processing');
+          }
+          
+          // Check if it's an error response
+          const responseText = await processingResponse.text();
+          let processingResult;
+          try {
+            processingResult = JSON.parse(responseText);
+          } catch (parseError) {
+            throw new Error(`Invalid response from background processing: ${responseText}`);
+          }
+          
+          if (processingResponse.status >= 400) {
+            throw new Error(`Background processing failed: ${processingResult.error || responseText}`);
+          }
+          
+          if (!processingResult.success) {
+            throw new Error(processingResult.error || 'Unknown processing error');
+          }
+          
+          console.log("✅ ASYNC UPLOAD - Background processing started successfully:", {
+            uploadId,
+            totalContacts: validContacts.length
+          });
+
+          // Return immediately with upload ID for progress tracking
+          return json({
+            step: "processing",
+            uploadId,
+            listId,
+            totalRows: rows.length,
+            validContacts: validContacts.length,
+            message: "Processing started in background"
+          });
+          
+        } catch (fetchError) {
+          console.error("❌ ASYNC UPLOAD - Failed to start background processing:", fetchError);
+          
+          // Fallback: return with reduced functionality message
+          return json({ 
+            error: `Background processing failed. Please try with a smaller file or contact support. Error: ${fetchError instanceof Error ? fetchError.message : 'Unknown error'}`,
+            suggestion: "Try uploading fewer contacts at once (under 100) or check your network connection."
+          }, { status: 500 });
+        }
       
       } catch (error) {
         console.error("❌ CSV UPLOAD DEBUG - Duplicate check failed:", {
