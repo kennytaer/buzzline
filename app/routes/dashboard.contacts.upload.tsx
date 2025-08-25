@@ -334,8 +334,10 @@ export async function action(args: ActionFunctionArgs) {
             startTime: new Date().toISOString()
           });
           
-          // Start background processing (fire and forget)
-          processContactsAsync(
+          // Process contacts synchronously (Cloudflare Workers don't support true background processing)
+          console.log("🔄 SYNC PROCESSING - Processing contacts synchronously due to Cloudflare environment");
+          
+          const results = await processContactsSync(
             orgId,
             uploadId,
             validContacts,
@@ -345,30 +347,20 @@ export async function action(args: ActionFunctionArgs) {
             contactService,
             contactListService,
             kvService
-          ).catch(error => {
-            console.error("❌ Background processing error:", error);
-            updateUploadStatus(kvService, orgId, uploadId, {
-              status: 'failed',
-              error: error.message || 'Unknown error during processing',
-              failedAt: new Date().toISOString()
-            }).catch(statusError => {
-              console.error("Failed to update error status:", statusError);
-            });
-          });
+          );
           
-          console.log("✅ ASYNC UPLOAD - Background processing started successfully:", {
-            uploadId,
-            totalContacts: validContacts.length
-          });
+          console.log("✅ SYNC PROCESSING - Processing completed:", results);
 
-          // Return immediately with upload ID for progress tracking
+          // Return results immediately
           return json({
-            step: "processing",
-            uploadId,
+            step: "complete",
             listId,
             totalRows: rows.length,
-            validContacts: validContacts.length,
-            message: "Processing started in background"
+            successfulRows: results.successfulRows,
+            duplicatesUpdated: results.duplicatesUpdated,
+            skippedDuplicates: results.skippedDuplicates,
+            failedRows: results.failedRows,
+            errors: results.errors
           });
           
         } catch (fetchError) {
@@ -404,8 +396,8 @@ export async function action(args: ActionFunctionArgs) {
   }
 }
 
-// Background processing functions
-async function processContactsAsync(
+// Contact processing functions
+async function processContactsSync(
   orgId: string,
   uploadId: string,
   validContacts: Array<{rowIndex: number; contact: any; contactId: string}>,
@@ -428,6 +420,8 @@ async function processContactsAsync(
   const errors: Array<{ row: number; error: string }> = [];
 
   try {
+    console.log('🚀 BACKGROUND PROCESSING - Starting stage 1: duplicate checking');
+    
     // Stage 1: Check for duplicates in batches
     await updateUploadStatus(kvService, orgId, uploadId, {
       stage: 'checking_duplicates',
@@ -440,9 +434,13 @@ async function processContactsAsync(
       phone: contact.phone || undefined
     }));
     
+    console.log('🔍 BACKGROUND PROCESSING - Starting duplicate check for', emailsAndPhones.length, 'contacts');
+    
     const existingContacts = await executeWithRetry(async () => {
       return await contactService.findContactsByEmailsOrPhones(orgId, emailsAndPhones);
     }, MAX_RETRIES, RETRY_DELAY_MS);
+    
+    console.log('✅ BACKGROUND PROCESSING - Duplicate check complete, found', existingContacts.length, 'existing contacts');
     
     const existingContactMap = new Map();
     existingContacts.forEach((item: any) => {
@@ -452,6 +450,7 @@ async function processContactsAsync(
     });
 
     // Separate new contacts from duplicates
+    console.log('📊 BACKGROUND PROCESSING - Separating new contacts from duplicates...');
     const newContacts: Array<{id: string, data: any}> = [];
     const duplicateUpdates: Array<{contact: any, updates: any}> = [];
     
@@ -496,8 +495,14 @@ async function processContactsAsync(
     }
 
     const totalItems = newContacts.length + duplicateUpdates.length;
+    console.log('📊 BACKGROUND PROCESSING - Separation complete:', {
+      newContacts: newContacts.length,
+      duplicateUpdates: duplicateUpdates.length,
+      totalItems
+    });
 
     // Stage 2: Process new contacts in batches
+    console.log('🚀 BACKGROUND PROCESSING - Starting stage 2: creating new contacts');
     await updateUploadStatus(kvService, orgId, uploadId, {
       stage: 'creating_contacts',
       processed: 0,
@@ -611,33 +616,33 @@ async function processContactsAsync(
       await contactService.forceRebuildMetadata(orgId);
     }, MAX_RETRIES, RETRY_DELAY_MS);
 
-    // Mark as complete
-    await updateUploadStatus(kvService, orgId, uploadId, {
-      status: 'complete',
-      stage: 'complete',
-      processed: totalItems,
-      total: totalItems,
-      results: {
-        listId,
-        totalRows: validContacts.length,
-        successfulRows: contactIds.length,
-        duplicatesUpdated: duplicatesUpdated.length,
-        skippedDuplicates: skippedDuplicates.length,
-        failedRows: errors.length,
-        errors: errors.slice(0, 10) // Limit errors shown
-      },
-      completedAt: new Date().toISOString()
-    });
+    // Return results
+    const results = {
+      listId,
+      totalRows: validContacts.length,
+      successfulRows: contactIds.length,
+      duplicatesUpdated: duplicatesUpdated.length,
+      skippedDuplicates: skippedDuplicates.length,
+      failedRows: errors.length,
+      errors: errors.slice(0, 10) // Limit errors shown
+    };
+    
+    console.log('✅ SYNC PROCESSING - All stages completed successfully:', results);
+    return results;
 
   } catch (error) {
-    console.error("Processing failed:", error);
-    await updateUploadStatus(kvService, orgId, uploadId, {
-      status: 'failed',
-      stage: 'failed',
-      error: error instanceof Error ? error.message : 'Unknown processing error',
-      failedAt: new Date().toISOString()
-    });
-    throw error;
+    console.error("❌ SYNC PROCESSING - Processing failed:", error);
+    
+    // Return error results
+    return {
+      listId,
+      totalRows: validContacts.length,
+      successfulRows: contactIds.length,
+      duplicatesUpdated: duplicatesUpdated.length,
+      skippedDuplicates: skippedDuplicates.length,
+      failedRows: errors.length,
+      errors: [{ row: -1, error: error instanceof Error ? error.message : 'Unknown processing error' }]
+    };
   }
 }
 
