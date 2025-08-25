@@ -150,12 +150,41 @@ export async function action(args: ActionFunctionArgs) {
         field && !['firstName', 'lastName', 'email', 'phone'].includes(field)
       );
       
+      console.log("🔍 CUSTOM FIELDS DEBUG - Processing custom fields:", {
+        fieldMapping,
+        customFieldsToSave,
+        orgId
+      });
+      
       if (customFieldsToSave.length > 0) {
         const existingCustomFields = await kvService.getCustomFields(orgId);
         const newFields = customFieldsToSave.filter(field => !existingCustomFields.includes(field));
+        
+        console.log("🔍 CUSTOM FIELDS DEBUG - Checking existing fields:", {
+          existingCustomFields,
+          newFields,
+          willSave: newFields.length > 0
+        });
+        
         if (newFields.length > 0) {
-          await kvService.saveCustomFields(orgId, [...existingCustomFields, ...newFields]);
+          const updatedFields = [...existingCustomFields, ...newFields];
+          console.log("🔍 CUSTOM FIELDS DEBUG - Saving fields:", {
+            updatedFields
+          });
+          
+          await kvService.saveCustomFields(orgId, updatedFields);
+          
+          // Verify save worked
+          const verifyFields = await kvService.getCustomFields(orgId);
+          console.log("✅ CUSTOM FIELDS DEBUG - Verification after save:", {
+            verifyFields,
+            saveWorked: verifyFields.length === updatedFields.length
+          });
+        } else {
+          console.log("⚠️ CUSTOM FIELDS DEBUG - No new fields to save (all already exist)");
         }
+      } else {
+        console.log("⚠️ CUSTOM FIELDS DEBUG - No custom fields found in mapping");
       }
 
       console.log("🔍 ASYNC UPLOAD - Processing contacts for validation:", {
@@ -196,39 +225,18 @@ export async function action(args: ActionFunctionArgs) {
             contactListIds: [listId]
           };
 
-          // Debug field mapping extraction
-          const debugInfo = {
-            rowData: row,
-            rowKeys: Object.keys(row),
-            reverseMapping,
-            firstNameCSVColumn: reverseMapping.firstName,
-            lastNameCSVColumn: reverseMapping.lastName,
-            emailCSVColumn: reverseMapping.email,
-            phoneCSVColumn: reverseMapping.phone,
-            extractedFirstName: reverseMapping.firstName ? row[reverseMapping.firstName] : 'NO_MAPPING',
-            extractedLastName: reverseMapping.lastName ? row[reverseMapping.lastName] : 'NO_MAPPING',
-            extractedEmail: reverseMapping.email ? row[reverseMapping.email] : 'NO_MAPPING',
-            extractedPhone: reverseMapping.phone ? row[reverseMapping.phone] : 'NO_MAPPING',
-            finalContact: {
-              firstName: contact.firstName,
-              lastName: contact.lastName,
-              email: contact.email,
-              phone: contact.phone
-            }
-          };
-          
-          console.log(`Contact ${i} creation debug:`, debugInfo);
-          
-          // Extra debug for first contact to understand the mapping issue
+          // Debug field mapping for first contact only
           if (i === 0) {
-            console.log("FIRST CONTACT DETAILED DEBUG:");
-            console.log("Available CSV columns:", Object.keys(row));
-            console.log("Field mapping object:", fieldMapping);
-            
-            // Check if the mapped field exists in the row
-            for (const [csvCol, contactField] of Object.entries(fieldMapping)) {
-              console.log(`Mapping: "${csvCol}" -> "${contactField}", Value in row: "${row[csvCol]}"`);
-            }
+            console.log("🔍 FIELD MAPPING DEBUG - First contact mapping:", {
+              availableCSVColumns: Object.keys(row),
+              fieldMapping,
+              extractedData: {
+                firstName: contact.firstName,
+                lastName: contact.lastName,
+                email: contact.email,
+                phone: contact.phone
+              }
+            });
           }
 
           // Validate email and phone

@@ -27,14 +27,23 @@ class MockKVNamespace {
     this.store.delete(key);
   }
   
-  async list(options?: any): Promise<{ keys: Array<{ name: string }> }> {
+  async list(options?: any): Promise<{ keys: Array<{ name: string }>; list_complete: boolean; cursor?: string }> {
     const keys = Array.from(this.store.keys());
     const prefix = options?.prefix || '';
     const filteredKeys = keys.filter(key => key.startsWith(prefix));
     const limit = options?.limit || 1000; // Cloudflare KV limit
     
+    console.log('📋 MOCK KV LIST DEBUG:', {
+      totalKeys: keys.length,
+      prefix,
+      filteredKeys: filteredKeys.length,
+      limit,
+      sampleKeys: filteredKeys.slice(0, 3)
+    });
+    
     return {
-      keys: filteredKeys.slice(0, limit).map(name => ({ name }))
+      keys: filteredKeys.slice(0, limit).map(name => ({ name })),
+      list_complete: true // Mock always returns all results in one call
     };
   }
 }
