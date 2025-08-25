@@ -17,7 +17,6 @@ export async function action({ request, context }: ActionFunctionArgs) {
     const { 
       uploadId, 
       validContacts, 
-      duplicateUpdates, 
       listId, 
       listName,
       reactivateDuplicates 
@@ -42,7 +41,6 @@ export async function action({ request, context }: ActionFunctionArgs) {
       orgId,
       uploadId, 
       validContacts,
-      duplicateUpdates,
       listId,
       listName,
       reactivateDuplicates,
@@ -73,7 +71,6 @@ async function processContactsAsync(
   orgId: string,
   uploadId: string,
   validContacts: Array<{rowIndex: number; contact: any; contactId: string}>,
-  duplicateUpdates: Array<{contact: any; updates: any}>,
   listId: string,
   listName: string,
   reactivateDuplicates: boolean,
@@ -87,28 +84,93 @@ async function processContactsAsync(
   const MAX_RETRIES = 3;
 
   let totalProcessed = 0;
-  const totalItems = validContacts.length + duplicateUpdates.length;
   const contactIds: string[] = [];
   const duplicatesUpdated: string[] = [];
   const skippedDuplicates: string[] = [];
   const errors: Array<{ row: number; error: string }> = [];
 
   try {
-    // Stage 1: Process new contacts in batches
+    // Stage 1: Check for duplicates in batches
+    await updateUploadStatus(kvService, orgId, uploadId, {
+      stage: 'checking_duplicates',
+      processed: 0,
+      total: validContacts.length
+    });
+
+    const emailsAndPhones = validContacts.map(({contact}) => ({
+      email: contact.email || undefined,
+      phone: contact.phone || undefined
+    }));
+    
+    const existingContacts = await executeWithRetry(async () => {
+      return await contactService.findContactsByEmailsOrPhones(orgId, emailsAndPhones);
+    }, MAX_RETRIES, RETRY_DELAY_MS);
+    
+    const existingContactMap = new Map();
+    existingContacts.forEach((item: any) => {
+      const { email, phone, contact } = item;
+      if (email) existingContactMap.set(email.toLowerCase(), contact);
+      if (phone) existingContactMap.set(phone, contact);
+    });
+
+    // Separate new contacts from duplicates
+    const newContacts: Array<{id: string, data: any}> = [];
+    const duplicateUpdates: Array<{contact: any, updates: any}> = [];
+    
+    for (const {rowIndex, contact, contactId} of validContacts) {
+      const existingByEmail = contact.email ? existingContactMap.get(contact.email.toLowerCase()) : null;
+      const existingByPhone = contact.phone ? existingContactMap.get(contact.phone) : null;
+      const existingContact = existingByEmail || existingByPhone;
+      
+      if (existingContact) {
+        // Handle duplicate - prepare update
+        const updatedListIds = existingContact.contactListIds || [];
+        if (!updatedListIds.includes(listId)) {
+          updatedListIds.push(listId);
+        }
+        
+        // Merge metadata
+        const mergedMetadata = { ...existingContact.metadata, ...contact.metadata };
+        
+        const updates: any = {
+          firstName: contact.firstName || existingContact.firstName,
+          lastName: contact.lastName || existingContact.lastName,
+          email: contact.email || existingContact.email,
+          phone: contact.phone || existingContact.phone,
+          metadata: mergedMetadata,
+          contactListIds: updatedListIds
+        };
+        
+        // Reactivate if requested and currently opted out
+        if (reactivateDuplicates && existingContact.optedOut) {
+          updates.optedOut = false;
+          updates.optedOutAt = null;
+        }
+        
+        duplicateUpdates.push({contact: existingContact, updates});
+      } else {
+        // New contact
+        newContacts.push({
+          id: contactId,
+          data: contact
+        });
+      }
+    }
+
+    const totalItems = newContacts.length + duplicateUpdates.length;
+
+    // Stage 2: Process new contacts in batches
     await updateUploadStatus(kvService, orgId, uploadId, {
       stage: 'creating_contacts',
       processed: 0,
       total: totalItems
     });
 
-    for (let i = 0; i < validContacts.length; i += BATCH_SIZE) {
-      const batch = validContacts.slice(i, i + BATCH_SIZE);
+    for (let i = 0; i < newContacts.length; i += BATCH_SIZE) {
+      const batch = newContacts.slice(i, i + BATCH_SIZE);
       
       await executeWithRetry(async () => {
-        const bulkResults = await contactService.createContactsBulk(
-          orgId, 
-          batch.map(({contactId, contact}) => ({id: contactId, data: contact}))
-        );
+        const bulkResults = await contactService.createContactsBulk(orgId, batch);
         
         contactIds.push(...bulkResults.created);
         errors.push(...bulkResults.errors.map((e: any) => ({ row: -1, error: e.error })));
@@ -119,16 +181,16 @@ async function processContactsAsync(
       await updateUploadStatus(kvService, orgId, uploadId, {
         processed: totalProcessed,
         total: totalItems,
-        stage: `creating_contacts (${Math.floor(i/BATCH_SIZE) + 1}/${Math.ceil(validContacts.length/BATCH_SIZE)})`
+        stage: `creating_contacts (${Math.floor(i/BATCH_SIZE) + 1}/${Math.ceil(newContacts.length/BATCH_SIZE)})`
       });
 
       // Rate limiting delay
-      if (i + BATCH_SIZE < validContacts.length) {
+      if (i + BATCH_SIZE < newContacts.length) {
         await new Promise(resolve => setTimeout(resolve, DELAY_MS));
       }
     }
 
-    // Stage 2: Process duplicate updates in smaller batches
+    // Stage 3: Process duplicate updates in smaller batches
     await updateUploadStatus(kvService, orgId, uploadId, {
       stage: 'updating_duplicates',
       processed: totalProcessed,
@@ -171,7 +233,7 @@ async function processContactsAsync(
       }
     }
 
-    // Stage 3: Assign contacts to segment
+    // Stage 4: Assign contacts to segment
     await updateUploadStatus(kvService, orgId, uploadId, {
       stage: 'assigning_to_segment',
       processed: totalProcessed,
@@ -200,7 +262,7 @@ async function processContactsAsync(
       }, MAX_RETRIES, RETRY_DELAY_MS);
     }
 
-    // Stage 4: Final index rebuild (only once at the end)
+    // Stage 5: Final index rebuild (only once at the end)
     await updateUploadStatus(kvService, orgId, uploadId, {
       stage: 'rebuilding_indexes',
       processed: totalProcessed,
