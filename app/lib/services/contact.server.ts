@@ -426,8 +426,18 @@ export class ContactService {
       errors: [] as {id: string, error: string}[]
     };
 
+    console.log('🚀 BULK CREATE DEBUG - Starting bulk contact creation:', {
+      orgId,
+      totalContacts: contacts.length,
+      batchSize: BATCH_SIZE
+    });
+
     for (let i = 0; i < contacts.length; i += BATCH_SIZE) {
       const batch = contacts.slice(i, i + BATCH_SIZE);
+      console.log(`📦 BULK CREATE DEBUG - Processing batch ${Math.floor(i / BATCH_SIZE) + 1}:`, {
+        batchStart: i,
+        batchSize: batch.length
+      });
       
       const batchPromises = batch.map(async ({id, data}) => {
         try {
@@ -445,7 +455,9 @@ export class ContactService {
           results.created.push(id);
           return {success: true, id, contactData};
         } catch (error) {
-          results.errors.push({id, error: 'Failed to store contact'});
+          console.error(`❌ BULK CREATE DEBUG - Failed to store contact ${id}:`, error);
+          const errorMsg = error instanceof Error ? error.message : 'Failed to store contact';
+          results.errors.push({id, error: errorMsg});
           return {success: false, id, error};
         }
       });
@@ -453,13 +465,35 @@ export class ContactService {
       const batchResults = await Promise.all(batchPromises);
       
       const successfulContacts = batchResults.filter(r => r.success);
-      if (successfulContacts.length > 0) {
-        await this.updateContactIndexesBulk(orgId, successfulContacts.map(r => ({
-          id: r.id,
-          data: (r as any).contactData
-        })));
+      console.log(`📊 BULK CREATE DEBUG - Batch ${Math.floor(i / BATCH_SIZE) + 1} results:`, {
+        successful: successfulContacts.length,
+        failed: batchResults.length - successfulContacts.length,
+        totalCreatedSoFar: results.created.length
+      });
+    }
+
+    // Rebuild indexes once after all contacts are created
+    if (results.created.length > 0) {
+      console.log('🔄 BULK CREATE DEBUG - Rebuilding contact indexes after bulk creation:', {
+        createdCount: results.created.length,
+        errorCount: results.errors.length
+      });
+      
+      try {
+        await this.rebuildContactIndexes(orgId);
+        console.log('✅ BULK CREATE DEBUG - Contact indexes rebuilt successfully');
+      } catch (indexError) {
+        console.error('❌ BULK CREATE DEBUG - Failed to rebuild contact indexes:', indexError);
+        // Don't fail the entire operation for index rebuild issues
       }
     }
+
+    console.log('🎉 BULK CREATE DEBUG - Bulk creation complete:', {
+      totalRequested: contacts.length,
+      successful: results.created.length,
+      failed: results.errors.length,
+      successRate: Math.round((results.created.length / contacts.length) * 100)
+    });
 
     return results;
   }
@@ -469,6 +503,12 @@ export class ContactService {
     const contacts: any[] = [];
     let cursor: string | undefined = undefined;
     
+    console.log('📋 LIST CONTACTS DEBUG - Starting contact enumeration:', {
+      orgId,
+      prefix,
+      limit
+    });
+    
     do {
       const list: any = await this.main.list({ 
         prefix, 
@@ -476,17 +516,42 @@ export class ContactService {
         cursor 
       });
       
+      console.log('📋 LIST CONTACTS DEBUG - KV list result:', {
+        keysFound: list.keys.length,
+        listComplete: list.list_complete,
+        hasCursor: !!list.cursor,
+        sampleKeys: list.keys.slice(0, 3).map((k: any) => k.name)
+      });
+      
       const batchContacts = await Promise.all(
         list.keys.map(async (key: { name: string }) => {
-          const data = await this.main.get(key.name);
-          return data ? JSON.parse(data) : null;
+          try {
+            const data = await this.main.get(key.name);
+            return data ? JSON.parse(data) : null;
+          } catch (error) {
+            console.error(`❌ LIST CONTACTS DEBUG - Failed to parse contact from key ${key.name}:`, error);
+            return null;
+          }
         })
       );
       
-      contacts.push(...batchContacts.filter(Boolean));
+      const validContacts = batchContacts.filter(Boolean);
+      contacts.push(...validContacts);
       cursor = list.list_complete ? undefined : list.cursor;
       
+      console.log('📋 LIST CONTACTS DEBUG - Batch processed:', {
+        batchSize: list.keys.length,
+        validContacts: validContacts.length,
+        totalSoFar: contacts.length,
+        willContinue: !!cursor
+      });
+      
     } while (cursor && contacts.length < limit);
+    
+    console.log('✅ LIST CONTACTS DEBUG - Contact enumeration complete:', {
+      totalContacts: contacts.length,
+      orgId
+    });
     
     return contacts;
   }
@@ -498,68 +563,93 @@ export class ContactService {
     await this.rebuildContactIndexes(orgId);
   }
 
-  private async updateContactIndexesBulk(orgId: string, contacts: Array<{id: string, data: any}>) {
-    if (contacts.length === 0) return;
-    
-    // For bulk operations, also rebuild indexes to ensure consistency
-    console.log("CONTACT INDEX BULK UPDATE - Rebuilding for org:", orgId, "contacts:", contacts.length);
-    await this.rebuildContactIndexes(orgId);
-  }
 
   // Removed redistributeContactPages and updateContactSearchIndex methods
   // These are no longer needed since updateContactIndexes now does a full rebuild
 
   private async rebuildContactIndexes(orgId: string) {
+    console.log('🔄 INDEX REBUILD DEBUG - Starting contact index rebuild for org:', orgId);
+    
     const CONTACTS_PER_PAGE = 50;
-    const allContacts = await this.listAllContacts(orgId);
     
-    allContacts.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-    
-    const totalContacts = allContacts.length;
-    const totalPages = Math.ceil(totalContacts / CONTACTS_PER_PAGE);
-    
-    for (let page = 1; page <= totalPages; page++) {
-      const startIdx = (page - 1) * CONTACTS_PER_PAGE;
-      const endIdx = startIdx + CONTACTS_PER_PAGE;
-      const pageContacts = allContacts.slice(startIdx, endIdx).map(this.createContactIndexEntry);
+    try {
+      const allContacts = await this.listAllContacts(orgId);
+      console.log('📊 INDEX REBUILD DEBUG - Retrieved contacts:', {
+        totalContacts: allContacts.length,
+        sampleContact: allContacts[0] ? {
+          id: allContacts[0].id,
+          firstName: allContacts[0].firstName,
+          email: allContacts[0].email
+        } : null
+      });
       
-      const pageKey = this.getContactIndexKey(orgId, page);
-      await this.cache.put(pageKey, JSON.stringify(pageContacts));
-    }
-    
-    const searchIndex: any = {};
-    for (const contact of allContacts) {
-      const searchText = [
-        contact.firstName,
-        contact.lastName,
-        contact.email,
-        contact.phone,
-        contact.metadata ? Object.values(contact.metadata).join(' ') : ''
-      ].filter(Boolean).join(' ').toLowerCase();
+      allContacts.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
       
-      searchIndex[contact.id] = {
-        searchText,
-        firstName: contact.firstName,
-        lastName: contact.lastName,
-        email: contact.email,
-        phone: contact.phone,
-        createdAt: contact.createdAt
+      const totalContacts = allContacts.length;
+      const totalPages = Math.ceil(totalContacts / CONTACTS_PER_PAGE);
+      
+      console.log('📄 INDEX REBUILD DEBUG - Rebuilding page indexes:', {
+        totalContacts,
+        totalPages,
+        contactsPerPage: CONTACTS_PER_PAGE
+      });
+      
+      // Clear existing page caches first
+      await this.clearContactCaches(orgId);
+      console.log('🧹 INDEX REBUILD DEBUG - Cleared existing caches');
+      
+      // Rebuild page indexes
+      for (let page = 1; page <= totalPages; page++) {
+        const startIdx = (page - 1) * CONTACTS_PER_PAGE;
+        const endIdx = startIdx + CONTACTS_PER_PAGE;
+        const pageContacts = allContacts.slice(startIdx, endIdx).map(this.createContactIndexEntry);
+        
+        const pageKey = this.getContactIndexKey(orgId, page);
+        await this.cache.put(pageKey, JSON.stringify(pageContacts));
+      }
+      
+      // Build search index
+      console.log('🔍 INDEX REBUILD DEBUG - Building search index...');
+      const searchIndex: any = {};
+      for (const contact of allContacts) {
+        const searchText = [
+          contact.firstName,
+          contact.lastName,
+          contact.email,
+          contact.phone,
+          contact.metadata ? Object.values(contact.metadata).join(' ') : ''
+        ].filter(Boolean).join(' ').toLowerCase();
+        
+        searchIndex[contact.id] = {
+          searchText,
+          firstName: contact.firstName,
+          lastName: contact.lastName,
+          email: contact.email,
+          phone: contact.phone,
+          createdAt: contact.createdAt
+        };
+      }
+      
+      const searchKey = this.getContactSearchKey(orgId);
+      await this.cache.put(searchKey, JSON.stringify(searchIndex));
+      console.log('🔍 INDEX REBUILD DEBUG - Search index built with', Object.keys(searchIndex).length, 'contacts');
+      
+      // Save metadata
+      const metadata = {
+        totalContacts,
+        totalPages,
+        lastUpdated: new Date().toISOString()
       };
+      
+      const metaKey = this.getContactMetaKey(orgId);
+      await this.cache.put(metaKey, JSON.stringify(metadata));
+      
+      console.log('✅ INDEX REBUILD DEBUG - Index rebuild completed successfully:', metadata);
+      return metadata;
+    } catch (error) {
+      console.error('❌ INDEX REBUILD DEBUG - Index rebuild failed:', error);
+      throw error;
     }
-    
-    const searchKey = this.getContactSearchKey(orgId);
-    await this.cache.put(searchKey, JSON.stringify(searchIndex));
-    
-    const metadata = {
-      totalContacts,
-      totalPages,
-      lastUpdated: new Date().toISOString()
-    };
-    
-    const metaKey = this.getContactMetaKey(orgId);
-    await this.cache.put(metaKey, JSON.stringify(metadata));
-    
-    return metadata;
   }
 
   private async clearContactCaches(orgId: string) {
