@@ -3,6 +3,8 @@ import { useState, useCallback } from 'react';
 export interface UseCustomFieldsProps {
   initialFields: string[];
   orgId: string;
+  initialActiveFields?: string[];
+  initialValues?: Record<string, string>;
   onFieldAdded?: (fieldName: string) => void;
 }
 
@@ -18,12 +20,14 @@ export interface UseCustomFieldsReturn {
 
 export function useCustomFields({ 
   initialFields, 
-  orgId, 
+  orgId,
+  initialActiveFields = [],
+  initialValues = {},
   onFieldAdded 
 }: UseCustomFieldsProps): UseCustomFieldsReturn {
   const [availableFields, setAvailableFields] = useState<string[]>(initialFields);
-  const [activeFields, setActiveFields] = useState<string[]>([]);
-  const [fieldValues, setFieldValues] = useState<Record<string, string>>({});
+  const [activeFields, setActiveFields] = useState<string[]>(initialActiveFields);
+  const [fieldValues, setFieldValues] = useState<Record<string, string>>(initialValues);
 
   const addField = useCallback(async (fieldName: string): Promise<string> => {
     const cleanFieldName = fieldName.trim();

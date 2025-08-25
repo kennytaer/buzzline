@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useLoaderData, useActionData, Form, useNavigate } from "@remix-run/react";
 import type { LoaderFunctionArgs, ActionFunctionArgs } from "@remix-run/cloudflare";
 import { getAuth } from "@clerk/remix/ssr.server";
@@ -7,6 +7,8 @@ import { getContactService } from "~/lib/services/contact.server";
 import { getContactListService } from "~/lib/services/contactlist.server";
 import { getKVService } from "~/lib/kv.server";
 import { formatDate, isValidEmail, isValidPhone } from "~/lib/utils";
+import { CustomFieldSelector } from "~/components/CustomFieldSelector";
+import { useCustomFields } from "~/hooks/useCustomFields";
 
 export async function loader(args: LoaderFunctionArgs) {
   const { userId, orgId } = await getAuth(args);
@@ -157,49 +159,45 @@ export async function action(args: ActionFunctionArgs) {
 }
 
 export default function ContactView() {
-  const { contact, contactLists, customFields: availableCustomFields } = useLoaderData<typeof loader>();
+  const { contact, contactLists, customFields: availableCustomFields, orgId } = useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>();
   const navigate = useNavigate();
   const [isEditing, setIsEditing] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
-  const [customFields, setCustomFields] = useState(() => {
-    const fields: Record<string, string> = {};
-    
-    // Include all available custom fields from organization
-    availableCustomFields.forEach((fieldName: string) => {
-      fields[fieldName] = contact.metadata?.[fieldName] || '';
-    });
-    
-    // Also include any custom fields that exist on this contact but aren't in the org list
-    if (contact.metadata) {
-      Object.keys(contact.metadata)
-        .filter(key => !key.endsWith('_display_name'))
-        .forEach(key => {
-          if (!availableCustomFields.includes(key)) {
-            fields[key] = contact.metadata[key] || '';
-          }
-        });
-    }
-    
-    return fields;
-  });
+
+  // Prepare initial values from existing contact metadata
+  const initialActiveFields = contact.metadata 
+    ? Object.keys(contact.metadata).filter(key => !key.endsWith('_display_name'))
+    : [];
   
-  const [newFieldName, setNewFieldName] = useState('');
-  const [showAddField, setShowAddField] = useState(false);
+  const initialValues = contact.metadata 
+    ? Object.keys(contact.metadata)
+        .filter(key => !key.endsWith('_display_name'))
+        .reduce((acc, key) => ({ ...acc, [key]: contact.metadata[key] || '' }), {})
+    : {};
+
+  // Initialize custom fields manager with existing contact data
+  const customFieldsManager = useCustomFields({
+    initialFields: availableCustomFields || [],
+    initialActiveFields,
+    initialValues,
+    orgId,
+    onFieldAdded: async (fieldName) => {
+      // Optionally sync with server immediately
+      try {
+        await fetch('/api/custom-fields', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ orgId, fieldName })
+        });
+      } catch (error) {
+        console.warn('Failed to sync custom field immediately:', error);
+      }
+    }
+  });
 
   const getCustomFieldDisplayName = (key: string) => {
     return contact.metadata?.[`${key}_display_name`] || key.replace(/_/g, ' ');
-  };
-
-  const handleAddCustomField = () => {
-    if (newFieldName && !customFields[newFieldName]) {
-      setCustomFields(prev => ({
-        ...prev,
-        [newFieldName]: ''
-      }));
-      setNewFieldName('');
-      setShowAddField(false);
-    }
   };
 
   return (
@@ -373,82 +371,58 @@ export default function ContactView() {
                 <div className="sm:col-span-2">
                   <div className="flex items-center justify-between mb-4">
                     <h4 className="text-sm font-medium text-gray-700">Custom Fields</h4>
-                    <button
-                      type="button"
-                      onClick={() => setShowAddField(true)}
-                      className="inline-flex items-center px-3 py-1 border border-gray-300 shadow-sm text-xs font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50"
-                    >
-                      <svg className="-ml-0.5 mr-1 h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
-                      </svg>
-                      Add Field
-                    </button>
+                    <CustomFieldSelector
+                      existingFields={customFieldsManager.availableFields}
+                      onFieldSelect={customFieldsManager.addField}
+                      onNewFieldCreate={customFieldsManager.addField}
+                      placeholder="Add custom field"
+                      className="w-64"
+                    />
                   </div>
                   
-                  {/* Add New Field Form */}
-                  {showAddField && (
-                    <div className="mb-4 p-3 border border-blue-200 rounded-md bg-blue-50">
-                      <div className="flex items-center space-x-3">
-                        <div className="flex-1">
-                          <input
-                            type="text"
-                            placeholder="Field name (e.g., Department, Role)"
-                            value={newFieldName}
-                            onChange={(e) => setNewFieldName(e.target.value)}
-                            className="block w-full border-gray-300 rounded-md shadow-sm focus:ring-primary-500 focus:border-primary-500 sm:text-sm"
-                          />
-                        </div>
-                        <button
-                          type="button"
-                          onClick={handleAddCustomField}
-                          disabled={!newFieldName}
-                          className="inline-flex items-center px-3 py-2 border border-transparent text-sm leading-4 font-medium rounded-md text-white bg-primary-600 hover:bg-primary-700 disabled:bg-gray-300"
-                        >
-                          Add
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setShowAddField(false);
-                            setNewFieldName('');
-                          }}
-                          className="inline-flex items-center px-3 py-2 border border-gray-300 text-sm leading-4 font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50"
-                        >
-                          Cancel
-                        </button>
-                      </div>
-                    </div>
-                  )}
-                  
-                  {/* Existing Custom Fields */}
-                  {Object.keys(customFields).length > 0 ? (
+                  {/* Active Custom Fields */}
+                  {customFieldsManager.activeFields.length > 0 ? (
                     <div className="grid grid-cols-1 gap-y-4 gap-x-4 sm:grid-cols-2">
-                      {Object.keys(customFields).map((key) => (
-                        <div key={key}>
-                          <label htmlFor={key} className="block text-sm font-medium text-gray-700">
-                            {getCustomFieldDisplayName(key)}
-                          </label>
+                      {customFieldsManager.activeFields.map((key) => (
+                        <div key={key} className="relative">
+                          <div className="flex items-center gap-2 mb-1">
+                            <label htmlFor={key} className="block text-sm font-medium text-gray-700">
+                              {getCustomFieldDisplayName(key)}
+                            </label>
+                            <button
+                              type="button"
+                              onClick={() => customFieldsManager.removeField(key)}
+                              className="text-gray-400 hover:text-red-500 text-sm"
+                              title="Remove field"
+                            >
+                              ×
+                            </button>
+                          </div>
                           <input
                             type="text"
                             name={key}
                             id={key}
-                            value={customFields[key]}
-                            onChange={(e) => setCustomFields(prev => ({
-                              ...prev,
-                              [key]: e.target.value
-                            }))}
+                            value={customFieldsManager.fieldValues[key] || ''}
+                            onChange={(e) => customFieldsManager.updateFieldValue(key, e.target.value)}
                             className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-primary-500 focus:border-primary-500 px-3 py-2"
                           />
                         </div>
                       ))}
                     </div>
                   ) : (
-                    <p className="text-sm text-gray-500 italic">No custom fields yet. Click "Add Field" to create one.</p>
+                    <div className="text-center py-6 bg-gray-50 rounded-lg border-2 border-dashed border-gray-300">
+                      <p className="text-sm text-gray-500">
+                        No custom fields added yet. Use the dropdown above to add custom fields.
+                      </p>
+                      <p className="text-xs text-gray-400 mt-1">
+                        Example: Vehicle Year, Job Title, Company Size, etc.
+                      </p>
+                    </div>
                   )}
                 </div>
               </div>
 
-              <input type="hidden" name="customFields" value={JSON.stringify(customFields)} />
+              <input type="hidden" name="customFields" value={JSON.stringify(customFieldsManager.fieldValues)} />
 
               <div className="mt-6 flex justify-end space-x-3">
                 <button
