@@ -123,13 +123,14 @@ export async function action(args: ActionFunctionArgs) {
     }
 
     if (step === "import") {
-      // Get field mapping from form
-      const fieldMapping: Record<string, string> = {};
-      const mappingData = formData.get("mapping") as string;
-      
-      if (mappingData) {
-        Object.assign(fieldMapping, JSON.parse(mappingData));
-      }
+      try {
+        // Get field mapping from form
+        const fieldMapping: Record<string, string> = {};
+        const mappingData = formData.get("mapping") as string;
+        
+        if (mappingData) {
+          Object.assign(fieldMapping, JSON.parse(mappingData));
+        }
       
       console.log("🔍 ASYNC UPLOAD - Starting import with field mapping:", {
         totalRows: rows.length,
@@ -370,13 +371,12 @@ export async function action(args: ActionFunctionArgs) {
             suggestion: "Try uploading fewer contacts at once (under 100) or check your network connection."
           }, { status: 500 });
         }
-      
-      } catch (error) {
-        console.error("❌ CSV UPLOAD DEBUG - Duplicate check failed:", {
-          error: error instanceof Error ? error.message : error,
-          validContactsCount: validContacts?.length || 0
-        });
-        return json({ error: "Failed to check for duplicate contacts" }, { status: 500 });
+        
+      } catch (importError) {
+        console.error("❌ ASYNC UPLOAD - Import step failed:", importError);
+        return json({ 
+          error: `Import failed: ${importError instanceof Error ? importError.message : 'Unknown error'}` 
+        }, { status: 500 });
       }
     }
 
